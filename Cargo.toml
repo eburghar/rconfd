@@ -1,0 +1,24 @@
+[package]
+name = "rconfd"
+version = "0.1.0"
+description = """Generate config files from jsonnet templates and keep them in sync with secrets fetched from a
+vault server with kubernetes authentification."""
+authors = ["Éric BURGHARD <eric@itsufficient.me>"]
+edition = "2018"
+
+[dependencies]
+anyhow = "1.0.41"
+argh = "0.1.4"
+async-std = { version = "1.9.0", features = ["unstable"]}
+env_logger = "0.8.4"
+futures = "0.3.15"
+http = "0.2.4"
+isahc = { version = "1.4.0", features = ["json"] }
+jrsonnet-evaluator = { version = "0.3.6", features = [] }
+jrsonnet-interner = "0.3.8"
+jrsonnet-parser = "0.3.6"
+libc = "0.2.97"
+log = "0.4.14"
+serde = "1.0.126"
+serde_json = "1.0.64"
+sha1 = "0.6.0"
