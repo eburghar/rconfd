@@ -3,6 +3,7 @@ use std::{
 	collections::HashMap,
 	ops::{Deref, DerefMut},
 };
+use anyhow::{anyhow, Result};
 
 pub struct Secrets(HashMap<String, Option<Value>>);
 
@@ -40,21 +41,26 @@ impl Secrets {
 
 }
 
-#[derive(Copy, Clone)]
+/// The different types of supported backend
+#[derive(Copy, Clone, PartialEq)]
 pub enum Backend {
+	/// Vault
 	Vault,
+	/// Environement
 	Env,
+	/// Filesystem
 	File,
 }
 
-/// hard-coded list of backend
+/// lookup list for backend
 const BACKENDS: &'static [(&'static str, Backend)] = &[
-	("vault:", Backend::Vault),
-	("env:", Backend::Env),
-	("file:", Backend::File),
+	("vault", Backend::Vault),
+	("env", Backend::Env),
+	("file", Backend::File),
 ];
 
-pub fn backend(path: &str) -> Backend {
+/// transform a backend str into its enum representation
+pub fn backend_path(path: &str) -> Result<Backend> {
 	BACKENDS
 		.iter()
 		.find_map(|(prefix, backend)| {
@@ -64,18 +70,29 @@ pub fn backend(path: &str) -> Backend {
 				None
 			}
 		})
-		.unwrap_or(Backend::Vault)
+		.ok_or_else(|| anyhow!("unknown backend \"{}\"", path))
 }
 
-pub fn backend_path(path: &str) -> &str {
-	BACKENDS
-		.iter()
-		.find_map(|(prefix, _)| {
-			if path.starts_with(*prefix) {
-				Some(&path[prefix.len()..])
-			} else {
-				None
-			}
+/// Split a secret path into its 3 components: backend, args and path
+pub struct Secret<'a> {
+	pub backend: Backend,
+	pub args: &'a str,
+	pub path: &'a str
+}
+
+impl<'a> Secret<'a> {
+	pub fn new(path: &'a str) -> Result<Self> {
+		let mut it = path.split(":");
+		let backend_str = it.next().ok_or_else(|| anyhow!("no backend"))?;
+		let args = it.next().ok_or_else(|| anyhow!("no args"))?;
+		let path = it.next().ok_or_else(|| anyhow!("no path"))?;
+		if it.next().is_some() {
+			anyhow!("extra ':' in path");
+		}
+		Ok(Self {
+			backend: backend_path(backend_str)?,
+			args,
+			path
 		})
-		.unwrap_or(path)
+	}
 }

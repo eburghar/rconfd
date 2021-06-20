@@ -27,18 +27,18 @@ use std::{
 use crate::{
 	args::Args,
 	checksum::Checksums,
-	client::{VaultClient, VaultClients},
+	client::VaultClient,
 	conf::{config_files, parse_config, TemplateConfs},
 	libc::User,
 	message::Message,
 	s6::s6_ready,
-	secret::{Backend, Secrets},
+	secret::{Backend, Secret, Secrets},
 };
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// Mutable variables defining the state inside the main loop
-	// map role to vault client instance
-	let mut clients = VaultClients::new();
+	// 	vault client
+	let mut client = task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
 	// map template name to template conf
@@ -57,80 +57,78 @@ async fn main_loop(args: &Args) -> Result<()> {
 		// parse config files
 		let path = entry.as_path();
 		let conf = parse_config(path).with_context(|| format!("config error: {:?}", path))?;
-		// copy role and tmpl as they are used as owned key in hashmap
-		let role = conf.conf.role.clone();
 		let tmpl = conf.tmpl.clone();
-		// initialize vault client
-		let client = task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 
-		// move conf to dedicated hashmap
+		// move conf and tmpl to dedicated hashmap
 		confs.insert(conf.tmpl, conf.conf);
-
-		// first login
-		sender.send(Message::Login(role.clone())).await?;
-		clients.insert(role.clone(), client);
 
 		// fetch all the secrets defined in the template config
 		let secrets_it = confs.get(&tmpl).unwrap().secrets.iter();
 		for (path, _) in secrets_it {
+			let secret = Secret::new(path).with_context(|| format!("failed to parse secret path \"{}\"", path))?;
+			if secret.backend == Backend::Vault {
+				// first login
+				sender
+					.send(Message::Login(secret.args.to_owned()))
+					.await?;
+			}
 			// intialize secret to None
 			secrets.insert(path.clone(), None);
-			// ask the broker to get the initial value
-			match secret::backend(path) {
-				Backend::Vault => {
-					sender
-						.send(Message::GetSecret(role.clone(), path.to_owned()))
-						.await?
-				}
-				Backend::Env => sender.send(Message::GetEnv(path.to_owned())).await?,
-				Backend::File => sender.send(Message::GetFile(path.to_owned())).await?,
-			}
+			// ask the broker to get the secret initial value
+			sender.send(Message::GetSecret(path.to_owned())).await?
 		}
 	}
 
 	// actor loop
 	while let Some(msg) = receiver.next().await {
 		match msg {
-			Message::Login(role) => {
-				if let Some(client) = clients.get_mut(&role) {
-					client.login(sender.clone(), role).await.with_context(|| {
-						format!("failed to login to vault server {}", &args.url)
-					})?;
-				}
+			Message::Login(ref role) => {
+				client
+					.login(&sender, role)
+					.await
+					.with_context(|| format!("failed to login to vault server {}", &args.url))?;
 			}
 
-			Message::GetSecret(role, path) => {
-				if let Some(client) = clients.get_mut(&role) {
-					// get the path without prefix
-					let name = secret::backend_path(&path);
-					// fetch the secret
-					let value = client
-						.get_secret(sender.clone(), role, name.to_owned())
-						.await
-						.with_context(|| format!("failed to get the secret \"{}\"", &path))?;
-					if secrets.replace(&path, value) {
-						confs.generate_templates(&secrets, &path, &sender).await?;
+			Message::GetSecret(ref path) => {
+				let secret = Secret::new(path).with_context(|| format!("failed to parse secret path \"{}\"", path))?;
+				match secret.backend {
+					Backend::Vault => {
+						// fetch the secret
+						let value = client
+							.get_secret(&sender, secret.args, secret.path)
+							.await
+							.with_context(|| format!("failed to get the secret \"{}\"", path))?;
+						if secrets.replace(path, value) {
+							confs
+								.generate_templates(&secrets, path, &sender)
+								.await?;
+						}
 					}
-				}
-			}
 
-			Message::GetEnv(path) => {
-				let name = secret::backend_path(&path);
-				let value = serde_json::from_str(&env::var(name).unwrap_or("\"\"".to_owned()))
-					.with_context(|| format!("failed to parse variable {} content", name))?;
-				if secrets.replace(&path, value) {
-					confs.generate_templates(&secrets, &path, &sender).await?;
-				}
-			}
+					Backend::Env => {
+						let value =
+							serde_json::from_str(&env::var(path).unwrap_or("\"\"".to_owned()))
+								.with_context(|| {
+									format!("failed to parse variable {} content", path)
+								})?;
+						if secrets.replace(&path, value) {
+							confs
+								.generate_templates(&secrets, path, &sender)
+								.await?;
+						}
+					}
 
-			Message::GetFile(path) => {
-				let file_path = secret::backend_path(&path);
-				let file = File::open(file_path)?;
-				let reader = BufReader::new(file);
-				let value = serde_json::from_reader(reader)
-					.with_context(|| format!("failed to parse file \"{}\"", &path))?;
-				if secrets.replace(&path, value) {
-					confs.generate_templates(&secrets, &path, &sender).await?;
+					Backend::File => {
+						let file = File::open(secret.path).with_context(|| format!("failed to open \"{}\"", secret.path))?;
+						let reader = BufReader::new(file);
+						let value = serde_json::from_reader(reader)
+							.with_context(|| format!("failed to parse file \"{}\"", path))?;
+						if secrets.replace(path, value) {
+							confs
+								.generate_templates(&secrets, path, &sender)
+								.await?;
+						}
+					}
 				}
 			}
 
@@ -142,10 +140,12 @@ async fn main_loop(args: &Args) -> Result<()> {
 					state
 						.with_stdlib()
 						.set_manifest_format(ManifestFormat::ToString);
-					// add library paths
-					state.set_import_resolver(Box::new(FileImportResolver {
-						library_paths: conf.paths.iter().map(|s| PathBuf::from(s)).collect(),
-					}));
+					// add library paths if any
+					if let Some(ref jpath) = args.jpath {
+						state.set_import_resolver(Box::new(FileImportResolver {
+							library_paths: jpath.split(",").map(|s| PathBuf::from(s.trim())).collect(),
+						}));
+					}
 					// set trace format
 					state.set_trace_format(Box::new(CompactFormat {
 						resolver: PathResolver::Relative(PathBuf::from(&conf.dir)),

@@ -13,6 +13,10 @@ pub struct Args {
 	#[argh(option, short = 'u', default = "\"https://localhost:8200\".to_owned()")]
 	pub url: String,
 
+	/// , separated list of aditional path for jsonnet libraries
+	#[argh(option, short = 'j')]
+	pub jpath: Option<String>,
+
 	/// path of the service account certificate	(/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
 	#[argh(
 		option,

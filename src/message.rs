@@ -6,12 +6,8 @@ use anyhow::Result;
 pub enum Message {
 	/// log in and re log in (role)
 	Login(String),
-	// get/refresh a secret (role, path)
-	GetSecret(String, String),
-	// get an environment variable
-	GetEnv(String),
-	// get a json file
-	GetFile(String),
+	// get/refresh a secret (path)
+	GetSecret(String),
 	// generate template (config name)
 	GenerateTemplate(String),
 }

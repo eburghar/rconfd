@@ -7,11 +7,9 @@ use isahc::{
 };
 use serde::Deserialize;
 use serde_json::Value;
-use std::{fs::File, io::Read, time::Duration, collections::HashMap};
+use std::{collections::HashMap, fs::File, io::Read, time::Duration};
 
 use crate::message::{send_message, Message};
-
-pub type VaultClients = HashMap<String, VaultClient>;
 
 /// delay a future by a duration
 fn delay_task<F>(fut: F, dur: Duration) -> task::JoinHandle<Result<()>>
@@ -46,7 +44,8 @@ pub struct VaultClient {
 	url: String,
 	jwt: String,
 	client: HttpClient,
-	pub auth: Option<Auth>
+	/// map a role to an authentification token
+	pub auth: HashMap<String, Option<Auth>>,
 }
 
 impl VaultClient {
@@ -65,14 +64,14 @@ impl VaultClient {
 			url: url.to_owned(),
 			jwt,
 			client,
-			auth: None,
+			auth: HashMap::new(),
 		})
 	}
 
 	/// Log in to the vault client.
-	pub async fn login(&mut self, sender: Sender<Message>, role: String) -> Result<()> {
+	pub async fn login(&mut self, sender: &Sender<Message>, role: &str) -> Result<()> {
 		let url = format!("{}/auth/kubernetes/login", &self.url);
-		let body = format!(r#"{{"role": "{}", "jwt": "{}"}}"#, &role, &self.jwt);
+		let body = format!(r#"{{"role": "{}", "jwt": "{}"}}"#, role, &self.jwt);
 		let mut res = self.client.post_async(url, body).await?;
 		let status = res.status();
 		return if status == StatusCode::OK {
@@ -93,15 +92,14 @@ impl VaultClient {
 			};
 
 			// schedule a relogin login task at 2/3 of the lease_duration time
+			let auth_opt= self.auth.entry(role.to_owned()).or_insert(None);
 			if auth.client_token != "" {
 				if auth.renewable {
 					let dur = Duration::from_secs(auth.lease_duration * 2 / 3);
-					log::debug!("Successfuly logged in. Log in again within {:?}", &dur);
-					self.auth = Some(auth);
-					delay_task(send_message(sender, Message::Login(role)), dur);
+					log::debug!("Successfuly logged in to {} with role {}. Log in again within {:?}", &self.url, role, &dur);
+					*auth_opt = Some(auth);
+					delay_task(send_message(sender.clone(), Message::Login(role.to_owned())), dur);
 				}
-			} else {
-				self.auth = None;
 			}
 			Ok(())
 		} else {
@@ -118,12 +116,12 @@ impl VaultClient {
 	/// Get a secret from vault server and reschedule a renew with role if necessary
 	pub async fn get_secret(
 		&mut self,
-		sender: Sender<Message>,
-		role: String,
-		path: String,
+		sender: &Sender<Message>,
+		role: &str,
+		path: &str,
 	) -> Result<Value> {
-		if let Some(ref auth) = self.auth {
-			let url = format!("{}/{}", &self.url, &path);
+		if let Some(Some(auth)) = self.auth.get(role) {
+			let url = format!("{}/{}", &self.url, path);
 			let request = Request::get(url)
 				.header("X-Vault-Token", auth.client_token.as_str())
 				.body(())?;
@@ -143,7 +141,10 @@ impl VaultClient {
 						secret_value["lease_duration"].as_u64().unwrap_or(0u64) * 2 / 3,
 					);
 					log::debug!("Successfuly get secret. Renew within {:?}", &dur);
-					delay_task(send_message(sender, Message::GetSecret(role, path)), dur);
+					delay_task(
+						send_message(sender.clone(), Message::GetSecret(path.to_owned())),
+						dur,
+					);
 				}
 
 				// return the parsed secret

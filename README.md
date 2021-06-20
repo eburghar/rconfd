@@ -41,21 +41,22 @@ and escaping hell. With jsonnet it's impossible to generate malformed files (unl
 which defeat the purpose of using jsonnet in the first place).
 
 Jsonnet permit using complex operations for merging, adding, overriding and allowing you to easily and securly
-specialize your configuration files
-
+specialize your configuration files. By using kubernetes mount or environment variable, and the `file:` or
+`env:` backends, you can easily compose your configuration files.
 
 ## Usage
 
 ```
-rconfd 0.1.0
+rconfd 0.2.0
 
-Usage: rconfd -d <dir> [-u <url>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
+Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
 
 Generate config files from jsonnet templates and keep them in sync with secrets fetched from a vault server with kubernetes authentification.
 
 Options:
   -d, --dir         directory containing the rconfd config files
   -u, --url         the vault url (https://localhost:8200)
+  -j, --jpath       , separated list of aditional path for jsonnet libraries
   -c, --cacert      path of the service account
                     certificate	(/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
   -t, --token       path of the kubernetes token
@@ -73,16 +74,14 @@ Each configuration file must follow the following structure. For instance let's 
 ```json
 {
 	"tmpl": "test.jsonnet",
-	"paths": ["/etc/rconfd"],
 	"conf": {
 		"dir": "/etc/test",
 		"mode": "0644",
 		"user": "test-user",
-		"role": "test-role",
 		"secrets": {
-			"vault:kv/data/test/mysecret": "mysecret",
-			"env:NAMESPACE": "namespace",
-			"file:file.json": "file"
+			"vault:test-role:kv/data/test/mysecret": "mysecret",
+			"env::NAMESPACE": "namespace",
+			"file::file.json": "file"
 		},
 		"cmd": "echo reload"
 	}
@@ -94,17 +93,16 @@ to be generated, and the value of the key represent the template for the file. `
 path, `user` and `mode` set the owner and file permissions on successful manifestation.
 
 `secrets` is a map of json value inserted in an `extVar` variable before interpreting the jsonnet template. The
-key is a path from a backend and value is the name of top level key inside the `secrets` jsonnet extVar.
+key is a path following the following syntax `backend:args:path`, and the value is the name of the top level key
+inside the `secrets` jsonnet extVar.
 
 There are currently 3 backends:
-- `vault`: fetch a secret from the vault server (`-u` argument) using `role`
+- `vault`: fetch a secret from the vault server using args as a `role` name
 - `env`: fetch the environment variable and parse it as a json
 - `file`: fetch the content of the file and parse it as a json value
 
 The secrets are collected among all config files (to fetch each secret only once) and the `cmd` is executed if
 any of the config file change after manifestation.
-
-`paths` is a list of additional jsonnet library paths if your template used anything other than stdlib.
 
 # Example template
 

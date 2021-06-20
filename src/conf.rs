@@ -71,12 +71,8 @@ pub struct Conf {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TemplateConf {
-	/// vault role to connect with
-	pub role: String,
 	/// basedir for config files with relative path in jsonnet template
 	pub dir: String,
-	/// additional paths for jsonnet lib files
-	pub paths: Vec<String>,
 	/// mode of resulting files
 	pub mode: String,
 	/// owner of resulting files
