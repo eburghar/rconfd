@@ -73,17 +73,18 @@ Each configuration file must follow the following structure. For instance let's 
 
 ```json
 {
-	"tmpl": "test.jsonnet",
-	"conf": {
-		"dir": "/etc/test",
+	"test.jsonnet": {
+		"conf": {
+			"dir": "/etc/test",
 		"mode": "0644",
-		"user": "test-user",
-		"secrets": {
-			"vault:test-role:kv/data/test/mysecret": "mysecret",
-			"env::NAMESPACE": "namespace",
-			"file::file.json": "file"
-		},
-		"cmd": "echo reload"
+			"user": "test-user",
+			"secrets": {
+				"vault:test-role:kv/data/test/mysecret": "mysecret",
+				"env:str:NAMESPACE": "namespace",
+				"file:js:file.json": "file"
+			},
+			"cmd": "echo reload"
+		}
 	}
 }
 ```
@@ -98,8 +99,8 @@ inside the `secrets` jsonnet extVar.
 
 There are currently 3 backends:
 - `vault`: fetch a secret from the vault server using args as a `role` name
-- `env`: fetch the environment variable and parse it as a json
-- `file`: fetch the content of the file and parse it as a json value
+- `env`: fetch the environment variable and parse it as a json if `args` = `js` or keep it as a string if `str`
+- `file`: fetch the content of the file and parse it as a json value if `args` is `js` or keep it as a string if `str`
 
 The secrets are collected among all config files (to fetch each secret only once) and the `cmd` is executed if
 any of the config file change after manifestation.
@@ -107,9 +108,11 @@ any of the config file change after manifestation.
 # Example template
 
 You should correctly
-- setup a vault server,
-- activate one or several secret backends,
-- create a role allowed to access the secrets inside the backends,
+- [setup a vault server](https://learn.hashicorp.com/tutorials/vault/kubernetes-raft-deployment-guide?in=vault/kubernetes)
+- [activate one or several secret engine](https://www.vaultproject.io/docs/secrets),
+- [activate kubernetes auth method](https://www.vaultproject.io/docs/auth/kubernetes),
+- [create policies](https://www.vaultproject.io/docs/concepts/policies) allowing your roles to access the secrets
+  inside the backends
 - create the secret
 
 Using the `test.json` file above, we could write the following `test.jsonnet` template to create a `config.json`

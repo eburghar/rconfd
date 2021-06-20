@@ -61,13 +61,15 @@ impl TemplateConfs {
 }
 
 /// Define a template job
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Conf {
-	/// path of the jsonnet template to use for config files manifestation
-	pub tmpl: String,
-	// configuration for template
-	pub conf: TemplateConf,
-}
+type Conf = HashMap<String, TemplateConf>;
+
+// #[derive(Debug, Serialize, Deserialize)]
+// pub struct Conf {
+// 	/// path of the jsonnet template to use for config files manifestation
+// 	pub tmpl: String,
+// 	// configuration for template
+// 	pub conf: TemplateConf,
+// }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TemplateConf {

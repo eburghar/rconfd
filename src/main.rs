@@ -7,7 +7,7 @@ mod message;
 mod s6;
 mod secret;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use async_std::{channel::bounded, stream::StreamExt, task};
 use jrsonnet_evaluator::{
 	trace::{CompactFormat, PathResolver},
@@ -18,7 +18,7 @@ use serde_json::{map, Value};
 use std::{
 	env,
 	fs::{create_dir_all, File},
-	io::{BufReader, Write},
+	io::{BufReader, Read, Write},
 	os::unix::fs::PermissionsExt,
 	path::PathBuf,
 	process::Command,
@@ -37,7 +37,7 @@ use crate::{
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// Mutable variables defining the state inside the main loop
-	// 	vault client
+	// initialize vault client
 	let mut client = task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
@@ -57,25 +57,24 @@ async fn main_loop(args: &Args) -> Result<()> {
 		// parse config files
 		let path = entry.as_path();
 		let conf = parse_config(path).with_context(|| format!("config error: {:?}", path))?;
-		let tmpl = conf.tmpl.clone();
+		for (tmpl, conf) in conf {
+			// move conf and tmpl to dedicated hashmap
+			confs.insert(tmpl.clone(), conf);
 
-		// move conf and tmpl to dedicated hashmap
-		confs.insert(conf.tmpl, conf.conf);
-
-		// fetch all the secrets defined in the template config
-		let secrets_it = confs.get(&tmpl).unwrap().secrets.iter();
-		for (path, _) in secrets_it {
-			let secret = Secret::new(path).with_context(|| format!("failed to parse secret path \"{}\"", path))?;
-			if secret.backend == Backend::Vault {
-				// first login
-				sender
-					.send(Message::Login(secret.args.to_owned()))
-					.await?;
+			// fetch all the secrets defined in the template config
+			let secrets_it = confs.get(&tmpl).unwrap().secrets.iter();
+			for (path, _) in secrets_it {
+				let secret = Secret::new(path)
+					.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
+				if secret.backend == Backend::Vault {
+					// first login
+					sender.send(Message::Login(secret.args.to_owned())).await?;
+				}
+				// intialize secret to None
+				secrets.insert(path.clone(), None);
+				// ask the broker to get the secret initial value
+				sender.send(Message::GetSecret(path.to_owned())).await?
 			}
-			// intialize secret to None
-			secrets.insert(path.clone(), None);
-			// ask the broker to get the secret initial value
-			sender.send(Message::GetSecret(path.to_owned())).await?
 		}
 	}
 
@@ -90,7 +89,8 @@ async fn main_loop(args: &Args) -> Result<()> {
 			}
 
 			Message::GetSecret(ref path) => {
-				let secret = Secret::new(path).with_context(|| format!("failed to parse secret path \"{}\"", path))?;
+				let secret = Secret::new(path)
+					.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
 				match secret.backend {
 					Backend::Vault => {
 						// fetch the secret
@@ -99,34 +99,47 @@ async fn main_loop(args: &Args) -> Result<()> {
 							.await
 							.with_context(|| format!("failed to get the secret \"{}\"", path))?;
 						if secrets.replace(path, value) {
-							confs
-								.generate_templates(&secrets, path, &sender)
-								.await?;
+							confs.generate_templates(&secrets, path, &sender).await?;
 						}
 					}
 
 					Backend::Env => {
-						let value =
-							serde_json::from_str(&env::var(path).unwrap_or("\"\"".to_owned()))
-								.with_context(|| {
-									format!("failed to parse variable {} content", path)
-								})?;
+						let value = match secret.args {
+							"str" => {
+								Value::String(env::var(secret.path).unwrap_or("".to_owned()))
+							},
+							"js" => {
+								serde_json::from_str(&env::var(secret.path).unwrap_or("\"\"".to_owned()))
+									.with_context(|| {
+										format!("failed to parse \"{}\" variable content", secret.path)
+									})?
+							},
+							_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args))?
+						};
 						if secrets.replace(&path, value) {
-							confs
-								.generate_templates(&secrets, path, &sender)
-								.await?;
+							confs.generate_templates(&secrets, path, &sender).await?;
 						}
 					}
 
 					Backend::File => {
-						let file = File::open(secret.path).with_context(|| format!("failed to open \"{}\"", secret.path))?;
-						let reader = BufReader::new(file);
-						let value = serde_json::from_reader(reader)
-							.with_context(|| format!("failed to parse file \"{}\"", path))?;
+						let mut file = File::open(secret.path)
+							.with_context(|| format!("failed to open \"{}\"", secret.path))?;
+
+						let value = match secret.args {
+							"str" => {
+								let mut buffer = String::new();
+								file.read_to_string(&mut buffer).with_context(|| format!("failed to read \"{}\"", secret.path))?;
+								Value::String(buffer)
+							},
+							"js" => {
+								let reader = BufReader::new(file);
+								serde_json::from_reader(reader)
+									.with_context(|| format!("failed to parse file \"{}\"", path))?
+							},
+							_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args))?
+						};
 						if secrets.replace(path, value) {
-							confs
-								.generate_templates(&secrets, path, &sender)
-								.await?;
+							confs.generate_templates(&secrets, path, &sender).await?;
 						}
 					}
 				}
@@ -140,12 +153,13 @@ async fn main_loop(args: &Args) -> Result<()> {
 					state
 						.with_stdlib()
 						.set_manifest_format(ManifestFormat::ToString);
-					// add library paths if any
-					if let Some(ref jpath) = args.jpath {
-						state.set_import_resolver(Box::new(FileImportResolver {
-							library_paths: jpath.split(",").map(|s| PathBuf::from(s.trim())).collect(),
-						}));
-					}
+					// add file import resolver
+					let library_paths = if let Some(ref jpath) = args.jpath {
+						jpath.split(",").map(|s| PathBuf::from(s.trim())).collect()
+					} else {
+						vec![]
+					};
+					state.set_import_resolver(Box::new(FileImportResolver { library_paths }));
 					// set trace format
 					state.set_trace_format(Box::new(CompactFormat {
 						resolver: PathResolver::Relative(PathBuf::from(&conf.dir)),
