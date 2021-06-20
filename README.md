@@ -47,7 +47,7 @@ specialize your configuration files. By using kubernetes mount or environment va
 ## Usage
 
 ```
-rconfd 0.2.0
+rconfd 0.3.0
 
 Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
 
@@ -74,17 +74,15 @@ Each configuration file must follow the following structure. For instance let's 
 ```json
 {
 	"test.jsonnet": {
-		"conf": {
-			"dir": "/etc/test",
+		"dir": "/etc/test",
 		"mode": "0644",
-			"user": "test-user",
-			"secrets": {
-				"vault:test-role:kv/data/test/mysecret": "mysecret",
-				"env:str:NAMESPACE": "namespace",
-				"file:js:file.json": "file"
-			},
-			"cmd": "echo reload"
-		}
+		"user": "test-user",
+		"secrets": {
+			"vault:test-role:kv/data/test/mysecret": "mysecret",
+			"env:str:NAMESPACE": "namespace",
+			"file:js:file.json": "file"
+		},
+		"cmd": "echo reload"
 	}
 }
 ```
@@ -109,7 +107,7 @@ any of the config file change after manifestation.
 
 You should correctly
 - [setup a vault server](https://learn.hashicorp.com/tutorials/vault/kubernetes-raft-deployment-guide?in=vault/kubernetes)
-- [activate one or several secret engine](https://www.vaultproject.io/docs/secrets),
+- [activate one or several secret engines](https://www.vaultproject.io/docs/secrets),
 - [activate kubernetes auth method](https://www.vaultproject.io/docs/auth/kubernetes),
 - [create policies](https://www.vaultproject.io/docs/concepts/policies) allowing your roles to access the secrets
   inside the backends
@@ -135,5 +133,4 @@ inside the `/etc/test` directory.
 		file: $.file
 	}, '  ')
 }
-
 ```
