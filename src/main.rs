@@ -6,6 +6,7 @@ mod libc;
 mod message;
 mod s6;
 mod secret;
+mod subst;
 
 use anyhow::{anyhow, Context, Result};
 use async_std::{channel::bounded, stream::StreamExt, task};
@@ -33,6 +34,7 @@ use crate::{
 	message::Message,
 	s6::s6_ready,
 	secret::{Backend, Secret, Secrets},
+	subst::subst_var
 };
 
 async fn main_loop(args: &Args) -> Result<()> {
@@ -82,8 +84,9 @@ async fn main_loop(args: &Args) -> Result<()> {
 	while let Some(msg) = receiver.next().await {
 		match msg {
 			Message::Login(ref role) => {
+				let role = subst_var(role)?;
 				client
-					.login(&sender, role)
+					.login(&sender, &role)
 					.await
 					.with_context(|| format!("failed to login to vault server {}", &args.url))?;
 			}
@@ -93,25 +96,28 @@ async fn main_loop(args: &Args) -> Result<()> {
 					.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
 				match secret.backend {
 					Backend::Vault => {
+						let secret_args = subst_var(secret.args)?;
+						let secret_path = subst_var(secret.path)?;
 						// fetch the secret
 						let value = client
-							.get_secret(&sender, secret.args, secret.path)
+							.get_secret(&sender, &secret_args, &secret_path)
 							.await
-							.with_context(|| format!("failed to get the secret \"{}\"", path))?;
+							.with_context(|| format!("failed to get the secret \"{}\"", &secret_path))?;
 						if secrets.replace(path, value) {
 							confs.generate_templates(&secrets, path, &sender).await?;
 						}
 					}
 
 					Backend::Env => {
+						let secret_path = subst_var(secret.path)?;
 						let value = match secret.args {
 							"str" => {
-								Value::String(env::var(secret.path).unwrap_or("".to_owned()))
+								Value::String(env::var(&secret_path).unwrap_or("".to_owned()))
 							},
 							"js" => {
-								serde_json::from_str(&env::var(secret.path).unwrap_or("\"\"".to_owned()))
+								serde_json::from_str(&env::var(&secret_path).unwrap_or("\"\"".to_owned()))
 									.with_context(|| {
-										format!("failed to parse \"{}\" variable content", secret.path)
+										format!("failed to parse \"{}\" variable content", &secret_path)
 									})?
 							},
 							_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args))?
@@ -122,19 +128,20 @@ async fn main_loop(args: &Args) -> Result<()> {
 					}
 
 					Backend::File => {
-						let mut file = File::open(secret.path)
-							.with_context(|| format!("failed to open \"{}\"", secret.path))?;
+						let secret_path = subst_var(secret.path)?;
+						let mut file = File::open(&secret_path)
+							.with_context(|| format!("failed to open \"{}\"", &secret_path))?;
 
 						let value = match secret.args {
 							"str" => {
 								let mut buffer = String::new();
-								file.read_to_string(&mut buffer).with_context(|| format!("failed to read \"{}\"", secret.path))?;
+								file.read_to_string(&mut buffer).with_context(|| format!("failed to read \"{}\"", &secret_path))?;
 								Value::String(buffer)
 							},
 							"js" => {
 								let reader = BufReader::new(file);
 								serde_json::from_reader(reader)
-									.with_context(|| format!("failed to parse file \"{}\"", path))?
+									.with_context(|| format!("failed to parse file \"{}\"", &secret_path))?
 							},
 							_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args))?
 						};

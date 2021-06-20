@@ -47,7 +47,7 @@ specialize your configuration files. By using kubernetes mount or environment va
 ## Usage
 
 ```
-rconfd 0.3.0
+rconfd 0.4.0
 
 Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
 
@@ -87,23 +87,25 @@ Each configuration file must follow the following structure. For instance let's 
 }
 ```
 
-The template `tmpl` is a multi output jsonnet template. The root keys of the template represents path of the files
-to be generated, and the value of the key represent the template for the file. `dir` is used if a key is a relative
-path, `user` and `mode` set the owner and file permissions on successful manifestation.
+The template `test.jsonnet` is a multi output jsonnet template. The root keys of the template represents path of
+the files to be generated, while the value represents the template for the file. `dir` is used if a key
+is a relative path, `user` and `mode` set the owner and file permissions on successful manifestation.
 
-`secrets` is a map of json value inserted in an `extVar` variable before interpreting the jsonnet template. The
-key is a path following the following syntax `backend:args:path`, and the value is the name of the top level key
-inside the `secrets` jsonnet extVar.
+`secrets` is a map of json value inserted in a `secrets` [extVar](https://jsonnet.org/ref/stdlib.html)
+variable. The key is a path following the syntax `backend:args:path`, and the value is the name of the top level
+key inside the `secrets` jsonnet extVar. `args` and `path` can contains environment variables substitutions like
+`vault:${NAMESPACE}-mail:kv/data/${NAMESPACE}/mail` for `vault`. For `env` and `file` backends, only `path`
+can contain variable substitutions.
 
-There are currently 3 backends:
-- `vault`: fetch a secret from the vault server using args as a `role` name
-- `env`: fetch the environment variable and parse it as a json if `args` = `js` or keep it as a string if `str`
-- `file`: fetch the content of the file and parse it as a json value if `args` is `js` or keep it as a string if `str`
+There are 3 backends:
+- `vault`: fetch a secret from the vault server using `args` as a `role` name
+- `env`: fetch the environment variable and parse it as a json if `args` == `js` or keep it as a string if `str`
+- `file`: fetch the content of the file and parse it as a json value if `args` == `js` or keep it as a string if `str`
 
-The secrets are collected among all config files (to fetch each secret only once) and the `cmd` is executed if
-any of the config file change after manifestation.
+The secrets are collected among all templates and all config files (to fetch each secret only once) and the `cmd`
+is executed if any of the config file change after manifestation.
 
-# Example template
+# Example
 
 You should correctly
 - [setup a vault server](https://learn.hashicorp.com/tutorials/vault/kubernetes-raft-deployment-guide?in=vault/kubernetes)
@@ -111,7 +113,7 @@ You should correctly
 - [activate kubernetes auth method](https://www.vaultproject.io/docs/auth/kubernetes),
 - [create policies](https://www.vaultproject.io/docs/concepts/policies) allowing your roles to access the secrets
   inside the backends
-- create the secret
+- create some secrets
 
 Using the `test.json` file above, we could write the following `test.jsonnet` template to create a `config.json`
 inside the `/etc/test` directory.
