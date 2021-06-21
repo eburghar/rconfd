@@ -24,7 +24,7 @@ tests and blind kill and restart on timeout if conditions are not not met. With 
 the orchestration is simple and smarter, it starts faster, and scale better without putting unnecessary pressure
 on your orchestration supervisor or container runtime.
 
-`rconfd` is a rewrite of the C++ [cconfd](https://github.com/eburghar/cconfd] utility
+`rconfd` is a rewrite of the C++ [cconfd](https://github.com/eburghar/cconfd) utility
 using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jrsonnet
 interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using stdc++17
 and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too hard to
