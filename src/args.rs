@@ -2,7 +2,7 @@ use argh::{FromArgs, TopLevelCommand};
 use std::path::Path;
 
 /// Generate config files from jsonnet templates and keep them in sync with secrets fetched from a
-/// vault server with kubernetes authentification.
+/// vault server with kubernetes authentication.
 #[derive(FromArgs)]
 pub struct Args {
 	/// directory containing the rconfd config files
