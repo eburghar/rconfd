@@ -43,8 +43,8 @@ and escaping hell. With jsonnet it's impossible to generate malformed files (unl
 which defeat the purpose of using jsonnet in the first place).
 
 Jsonnet permits using complex operations for merging, adding, overriding and allowing you to easily and securely
-specialize your configuration files. By using kubernetes mount or environment variable, and the `file:` or
-`env:` back-ends, you can easily compose your configuration files.
+specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
+with the `file` and `env` back-ends, you can easily compose your configuration files.
 
 ## Usage
 
@@ -94,11 +94,11 @@ The template `test.jsonnet` is a multi output jsonnet template which means that 
 represents the paths of the files to be generated, while the values represent the templates. `dir` is used
 if a key is a relative path, `user` and `mode` set the owner and file permissions on successful manifestation.
 
-`secrets` is a map of json value inserted in a `secrets` [extVar](https://jsonnet.org/ref/stdlib.html)
-variable. The key is a path following the syntax `back-end:args:path`, and the value is the name of the top level
-key inside the `secrets` jsonnet extVar. `args` and `path` can contains environment variables substitutions like
-`vault:${NAMESPACE}-mail:kv/data/${NAMESPACE}/mail` for `vault`. For `env` and `file` back-end, only `path`
-can contain variable substitutions.
+`secrets` is a map of secret path and variable name inserted in a `secrets`
+[extVar](https://jsonnet.org/ref/stdlib.html) variable. The path has the following syntax:
+`back-end:args:path`. For the vault back-end, `args` and `path` can contains environment variables substitutions
+like `vault:${NAMESPACE}-mail:kv/data/${NAMESPACE}/mail` for `vault` while for `env` and `file` back-ends, only
+`path` can contain variable substitutions.
 
 There are 3 back-ends:
 - `vault`: fetch a secret from the vault server using `args` as a `role` name
