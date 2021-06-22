@@ -8,6 +8,18 @@ mod s6;
 mod secret;
 mod subst;
 
+use crate::{
+	args::Args,
+	checksum::Checksums,
+	client::VaultClient,
+	conf::{config_files, parse_config, TemplateConfs},
+	libc::User,
+	message::Message,
+	s6::s6_ready,
+	secret::{Backend, Secret, Secrets},
+	subst::subst_var,
+};
+
 use anyhow::{anyhow, Context, Result};
 use async_std::{channel::bounded, stream::StreamExt, task};
 use jrsonnet_evaluator::{
@@ -23,18 +35,6 @@ use std::{
 	os::unix::fs::PermissionsExt,
 	path::PathBuf,
 	process::Command,
-};
-
-use crate::{
-	args::Args,
-	checksum::Checksums,
-	client::VaultClient,
-	conf::{config_files, parse_config, TemplateConfs},
-	libc::User,
-	message::Message,
-	s6::s6_ready,
-	secret::{Backend, Secret, Secrets},
-	subst::subst_var
 };
 
 async fn main_loop(args: &Args) -> Result<()> {
@@ -63,19 +63,24 @@ async fn main_loop(args: &Args) -> Result<()> {
 			// move conf and tmpl to dedicated hashmap
 			confs.insert(tmpl.clone(), conf);
 
-			// fetch all the secrets defined in the template config
-			let secrets_it = confs.get(&tmpl).unwrap().secrets.iter();
-			for (path, _) in secrets_it {
-				let secret = Secret::new(path)
-					.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
-				if secret.backend == Backend::Vault {
-					// first login
-					sender.send(Message::Login(secret.args.to_owned())).await?;
+			let secrets_map = &confs.get(&tmpl).unwrap().secrets;
+			if secrets_map.len() == 0 {
+				// if no secrets generate template
+				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
+			} else {
+				// otherwise fetch all the secrets defined in the template config
+				for (path, _) in secrets_map.iter() {
+					let secret = Secret::new(path)
+						.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
+					if secret.backend == Backend::Vault {
+						// first login
+						sender.send(Message::Login(secret.args.to_owned())).await?;
+					}
+					// intialize secret to None
+					secrets.insert(path.clone(), None);
+					// ask the broker to get the secret initial value
+					sender.send(Message::GetSecret(path.to_owned())).await?
 				}
-				// intialize secret to None
-				secrets.insert(path.clone(), None);
-				// ask the broker to get the secret initial value
-				sender.send(Message::GetSecret(path.to_owned())).await?
 			}
 		}
 	}
@@ -102,7 +107,9 @@ async fn main_loop(args: &Args) -> Result<()> {
 						let value = client
 							.get_secret(&sender, &secret_args, &secret_path)
 							.await
-							.with_context(|| format!("failed to get the secret \"{}\"", &secret_path))?;
+							.with_context(|| {
+								format!("failed to get the secret \"{}\"", &secret_path)
+							})?;
 						if secrets.replace(path, value) {
 							confs.generate_templates(&secrets, path, &sender).await?;
 						}

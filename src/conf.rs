@@ -1,3 +1,5 @@
+use crate::{message::Message, secret::Secrets};
+
 use anyhow::{Context, Result};
 use async_std::channel::Sender;
 use serde::{Deserialize, Serialize};
@@ -7,8 +9,6 @@ use std::{
 	ops::{Deref, DerefMut},
 	path::{Path, PathBuf},
 };
-
-use crate::{message::Message, secret::Secrets};
 
 pub struct TemplateConfs(HashMap<String, TemplateConf>);
 

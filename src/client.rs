@@ -1,3 +1,5 @@
+use crate::message::{send_message, Message};
+
 use anyhow::{anyhow, Context, Result};
 use async_std::{channel::Sender, future, task};
 use http::{Request, StatusCode};
@@ -8,8 +10,6 @@ use isahc::{
 use serde::Deserialize;
 use serde_json::Value;
 use std::{collections::HashMap, fs::File, io::Read, time::Duration};
-
-use crate::message::{send_message, Message};
 
 /// delay a future by a duration
 fn delay_task<F>(fut: F, dur: Duration) -> task::JoinHandle<Result<()>>
@@ -92,13 +92,21 @@ impl VaultClient {
 			};
 
 			// schedule a relogin login task at 2/3 of the lease_duration time
-			let auth_opt= self.auth.entry(role.to_owned()).or_insert(None);
+			let auth_opt = self.auth.entry(role.to_owned()).or_insert(None);
 			if auth.client_token != "" {
 				if auth.renewable {
 					let dur = Duration::from_secs(auth.lease_duration * 2 / 3);
-					log::debug!("Successfuly logged in to {} with role {}. Log in again within {:?}", &self.url, role, &dur);
+					log::debug!(
+						"Successfuly logged in to {} with role {}. Log in again within {:?}",
+						&self.url,
+						role,
+						&dur
+					);
 					*auth_opt = Some(auth);
-					delay_task(send_message(sender.clone(), Message::Login(role.to_owned())), dur);
+					delay_task(
+						send_message(sender.clone(), Message::Login(role.to_owned())),
+						dur,
+					);
 				}
 			}
 			Ok(())
