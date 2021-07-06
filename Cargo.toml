@@ -24,4 +24,5 @@ sha1 = "0.6.0"
 vaultk8s = "0.1.0"
 
 [patch.crates-io]
-vaultk8s = { path = "../vaultk8s" }
+vaultk8s = { git = "https://github.com/eburghar/vaultk8s.git", branch = "master" }
+# vaultk8s = { path = "../vaultk8s" }
