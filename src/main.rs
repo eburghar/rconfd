@@ -1,27 +1,27 @@
 mod args;
 mod checksum;
-mod client;
 mod conf;
 mod libc;
 mod message;
 mod s6;
 mod secret;
 mod subst;
+mod task;
 
 use crate::{
 	args::Args,
 	checksum::Checksums,
-	client::VaultClient,
 	conf::{config_files, parse_config, TemplateConfs},
 	libc::User,
-	message::Message,
+	message::{send_message, Message},
 	s6::s6_ready,
 	secret::{Backend, Secret, Secrets},
 	subst::subst_var,
+	task::delay_task,
 };
 
 use anyhow::{anyhow, Context, Result};
-use async_std::{channel::bounded, stream::StreamExt, task};
+use async_std::{channel::bounded, stream::StreamExt};
 use jrsonnet_evaluator::{
 	trace::{CompactFormat, PathResolver},
 	EvaluationState, FileImportResolver, ManifestFormat, Val,
@@ -35,12 +35,14 @@ use std::{
 	os::unix::fs::PermissionsExt,
 	path::PathBuf,
 	process::Command,
+	time::Duration
 };
+use vaultk8s::client::VaultClient;
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// Mutable variables defining the state inside the main loop
 	// initialize vault client
-	let mut client = task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
+	let mut client = async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
 	// map template name to template conf
@@ -60,7 +62,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 		let path = entry.as_path();
 		let conf = parse_config(path).with_context(|| format!("config error: {:?}", path))?;
 		for (tmpl, conf) in conf {
-			// move conf and tmpl to dedicated hashmap
+			// move conf to dedicated hashmap
 			confs.insert(tmpl.clone(), conf);
 
 			let secrets_map = &confs.get(&tmpl).unwrap().secrets;
@@ -73,7 +75,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 					let secret = Secret::new(path)
 						.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
 					if secret.backend == Backend::Vault {
-						// first login
+						// ask the broker to login first
 						sender.send(Message::Login(secret.args.to_owned())).await?;
 					}
 					// intialize secret to None
@@ -90,10 +92,24 @@ async fn main_loop(args: &Args) -> Result<()> {
 		match msg {
 			Message::Login(ref role) => {
 				let role = subst_var(role)?;
-				client
-					.login(&sender, &role)
+				let auth = client
+					.login(&role)
 					.await
 					.with_context(|| format!("failed to login to vault server {}", &args.url))?;
+				// schedule a relogin login task at 2/3 of the lease_duration time
+				if auth.renewable {
+					let dur = auth.lease_duration * 2 / 3;
+					log::debug!(
+						"Successfuly logged in to {} with role {}. Log in again within {:?}",
+						&client.url,
+						&role,
+						&dur
+					);
+					delay_task(
+						send_message(sender.clone(), Message::Login(role)),
+						dur,
+					);
+				}
 			}
 
 			Message::GetSecret(ref path) => {
@@ -103,13 +119,29 @@ async fn main_loop(args: &Args) -> Result<()> {
 					Backend::Vault => {
 						let secret_args = subst_var(secret.args)?;
 						let secret_path = subst_var(secret.path)?;
+
 						// fetch the secret
 						let value = client
-							.get_secret(&sender, &secret_args, &secret_path)
+							.get_secret(&secret_args, &secret_path)
 							.await
 							.with_context(|| {
 								format!("failed to get the secret \"{}\"", &secret_path)
 							})?;
+
+						// schedule the newew of the secret at 2/3 of the lease_duration time
+						let renewable = value["renewable"].as_bool().unwrap_or(false);
+						if renewable {
+							let dur = Duration::from_secs(
+								value["lease_duration"].as_u64().unwrap_or(0u64) * 2 / 3,
+							);
+							log::debug!("Successfuly get secret. Renew within {:?}", &dur);
+							delay_task(
+								send_message(sender.clone(), Message::GetSecret(path.to_owned())),
+								dur,
+							);
+						}
+
+						// replace secret value an regenerate template if necessary
 						if secrets.replace(path, value) {
 							confs.generate_templates(&secrets, path, &sender).await?;
 						}
@@ -285,9 +317,8 @@ fn main() -> Result<()> {
 	let args: Args = args::from_env();
 
 	// initialize env_logger in info mode for rconfd by default
-	env_logger::Builder::new()
-		.parse_filters(&env::var(String::from("RUST_LOG")).unwrap_or(String::from("rconfd=info")))
-		.init();
-	task::block_on(main_loop(&args))?;
+	env_logger::Env::default().default_filter_or("rconfd=info");
+	env_logger::init();
+	async_std::task::block_on(main_loop(&args))?;
 	Ok(())
 }

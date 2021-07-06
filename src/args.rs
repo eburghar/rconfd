@@ -10,7 +10,7 @@ pub struct Args {
 	pub dir: String,
 
 	/// the vault url (https://localhost:8200)
-	#[argh(option, short = 'u', default = "\"https://localhost:8200\".to_owned()")]
+	#[argh(option, short = 'u', default = "\"https://localhost:8200/v1\".to_owned()")]
 	pub url: String,
 
 	/// , separated list of aditional path for jsonnet libraries
