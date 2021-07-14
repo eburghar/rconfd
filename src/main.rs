@@ -35,14 +35,15 @@ use std::{
 	os::unix::fs::PermissionsExt,
 	path::PathBuf,
 	process::Command,
-	time::Duration
+	time::Duration,
 };
 use vaultk8s::client::VaultClient;
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// Mutable variables defining the state inside the main loop
 	// initialize vault client
-	let mut client = async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
+	let mut client =
+		async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
 	// map template name to template conf
@@ -105,10 +106,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 						&role,
 						&dur
 					);
-					delay_task(
-						send_message(sender.clone(), Message::Login(role)),
-						dur,
-					);
+					delay_task(send_message(sender.clone(), Message::Login(role)), dur);
 				}
 			}
 
