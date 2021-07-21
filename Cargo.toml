@@ -1,6 +1,6 @@
 [package]
 name = "rconfd"
-version = "0.4.2"
+version = "0.5.0"
 description = """Generate config files from jsonnet templates and keep them in sync with secrets fetched from a
 vault server with kubernetes authentication."""
 authors = ["Éric BURGHARD <eric@itsufficient.me>"]
@@ -21,7 +21,7 @@ log = "0.4.14"
 serde = "1.0.126"
 serde_json = "1.0.64"
 sha1 = "0.6.0"
-vaultk8s = "0.1.0"
+vaultk8s = "0.2.0"
 
 [patch.crates-io]
 vaultk8s = { git = "https://github.com/eburghar/vaultk8s.git", branch = "master" }

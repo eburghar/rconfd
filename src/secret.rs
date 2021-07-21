@@ -1,14 +1,14 @@
-use serde_json::Value;
+use anyhow::{anyhow, Result};
 use std::{
 	collections::HashMap,
 	ops::{Deref, DerefMut},
 };
-use anyhow::{anyhow, Result};
+use vaultk8s::secret::Secret;
 
-pub struct Secrets(HashMap<String, Option<Value>>);
+pub struct Secrets(HashMap<String, Option<Secret>>);
 
 impl Deref for Secrets {
-	type Target = HashMap<String, Option<Value>>;
+	type Target = HashMap<String, Option<Secret>>;
 	fn deref(&self) -> &Self::Target {
 		&self.0
 	}
@@ -22,23 +22,26 @@ impl DerefMut for Secrets {
 
 impl Secrets {
 	pub fn new() -> Self {
-		Self(HashMap::<String, Option<Value>>::new())
+		Self(HashMap::<String, Option<Secret>>::new())
 	}
 
-	/// Replace the secret at path if it has changed, and return if it has been replaced
-	pub fn replace(&mut self, path: &str, value: Value) -> bool {
+	/// Replace the secret at path if it has changed, and return true if it has been replaced
+	pub fn replace(&mut self, path: &str, secret: Secret) -> bool {
 		let val = self.entry(path.to_owned()).or_insert(None);
 		let prev_val = val.take();
 
 		// if the secret has changed
-		let res = prev_val.is_none() || prev_val.unwrap() != value;
-		if res {
-			// replace secret value
-			*val = Some(value);
-		}
+		let res = prev_val.is_none() || prev_val.unwrap() != secret;
+		// replace/restore (after take) the secret value
+		*val = Some(secret);
 		res
 	}
 
+	/// Tell if the secrets map contains at least a leased secret
+	pub fn has_lease(&self) -> bool {
+		self.iter()
+			.any(|(_, secret)| secret.as_ref().filter(|s| s.has_lease()).is_some())
+	}
 }
 
 /// The different types of supported backend
@@ -77,7 +80,7 @@ pub fn backend_path(path: &str) -> Result<Backend> {
 pub struct Secret<'a> {
 	pub backend: Backend,
 	pub args: &'a str,
-	pub path: &'a str
+	pub path: &'a str,
 }
 
 impl<'a> Secret<'a> {
@@ -92,7 +95,7 @@ impl<'a> Secret<'a> {
 		Ok(Self {
 			backend: backend_path(backend_str)?,
 			args,
-			path
+			path,
 		})
 	}
 }
