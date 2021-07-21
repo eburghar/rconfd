@@ -49,7 +49,7 @@ with the `file` and `env` back-ends, you can easily compose your configuration f
 ## Usage
 
 ```
-rconfd 0.4.0
+rconfd 0.5.0
 
 Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
 
@@ -126,8 +126,7 @@ inside the `/etc/test` directory.
 	// we define shortcuts for easy access to the secret extVar
 	// the :: is to tell jsonnet to not consider the key as a file to generate
 	secrets:: std.extVar("secrets"),
-	// we have data and metadata with vault kv v2, so go directly to the point
-	mysecret:: self.secrets['mysecret']['data']['data'],
+	mysecret:: self.secrets['mysecret']
 	namespace:: self.secrets['namespace'],
 	file:: self.secrets['file'],
 
