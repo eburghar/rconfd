@@ -60,9 +60,11 @@ async fn main_loop(args: &Args) -> Result<()> {
 	let entries = config_files(&args.dir)?;
 	for entry in entries.into_iter() {
 		// parse config files
+		log::info!("Loading {:?}", entry);
 		let path = entry.as_path();
 		let conf = parse_config(path).with_context(|| format!("config error: {:?}", path))?;
 		for (tmpl, conf) in conf {
+			log::info!("  Parsing {:?}", &tmpl);
 			// move conf to dedicated hashmap
 			confs.insert(tmpl.clone(), conf);
 
@@ -95,14 +97,14 @@ async fn main_loop(args: &Args) -> Result<()> {
 				let role = subst_var(role)?;
 				// log in if not already logged in with that role
 				if !client.is_logged(&role) {
-					log::debug!("Login({})", role);
+					log::debug!("  Login({})", role);
 					let auth = client.login(&role).await.with_context(|| {
 						format!("failed to login to vault server {}", &args.url)
 					})?;
 					// schedule a relogin login task at 2/3 of the lease_duration time
 					if let Some(renew_delay) = auth.renew_delay() {
 						log::debug!(
-							"Successfuly logged in to {} with role {}. Log in again within {:?}",
+							"  logged in to {} with role {}. Log in again within {:?}",
 							&client.url,
 							&role,
 							renew_delay
@@ -122,7 +124,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 					.filter(|o| o.as_ref().filter(|s| s.is_valid()).is_some())
 					.is_none()
 				{
-					log::debug!("GetSecret({})", path);
+					log::debug!("  GetSecret({})", path);
 					let secret = SecretPath::new(path)
 						.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
 					match secret.backend {
@@ -141,7 +143,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 							// schedule the newewal of the secret
 							if let Some(renew_delay) = secret.renew_delay() {
 								log::debug!(
-									"Successfuly get secret. Renew within {:?}",
+									"  Renew secret within {:?}",
 									renew_delay
 								);
 								delay_task(
@@ -341,8 +343,7 @@ fn main() -> Result<()> {
 	let args: Args = args::from_env();
 
 	// initialize env_logger in info mode for rconfd by default
-	env_logger::Env::default().default_filter_or("rconfd=info");
-	env_logger::init();
+	env_logger::init_from_env(env_logger::Env::new().default_filter_or("rconfd=info"));
 	async_std::task::block_on(main_loop(&args))?;
 	Ok(())
 }

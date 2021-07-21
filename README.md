@@ -126,7 +126,7 @@ inside the `/etc/test` directory.
 	// we define shortcuts for easy access to the secret extVar
 	// the :: is to tell jsonnet to not consider the key as a file to generate
 	secrets:: std.extVar("secrets"),
-	mysecret:: self.secrets['mysecret']
+	mysecret:: self.secrets['mysecret'],
 	namespace:: self.secrets['namespace'],
 	file:: self.secrets['file'],
 
