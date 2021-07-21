@@ -328,6 +328,9 @@ async fn main_loop(args: &Args) -> Result<()> {
 						s6_ready(args.ready_fd);
 						// quit if not in daemon mode or no dynamic secrets used among templates
 						if !args.daemon || !secrets.has_lease() {
+							if args.daemon {
+								log::info!("Exiting daemon mode: no dynamic secrets used");
+							}
 							break;
 						}
 					}
