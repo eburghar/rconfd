@@ -15,7 +15,7 @@ use crate::{
 	libc::User,
 	message::{send_message, Message},
 	s6::s6_ready,
-	secret::{Backend, Secret, Secrets},
+	secret::{Backend, SecretPath, Secrets},
 	subst::subst_var,
 	task::delay_task,
 };
@@ -73,7 +73,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 			} else {
 				// otherwise fetch all the secrets defined in the template config
 				for (path, _) in secrets_map.iter() {
-					let secret = Secret::new(path)
+					let secret = SecretPath::new(path)
 						.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
 					if secret.backend == Backend::Vault {
 						// ask the broker to login first

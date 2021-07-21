@@ -77,13 +77,13 @@ pub fn backend_path(path: &str) -> Result<Backend> {
 }
 
 /// Split a secret path into its 3 components: backend, args and path
-pub struct Secret<'a> {
+pub struct SecretPath<'a> {
 	pub backend: Backend,
 	pub args: &'a str,
 	pub path: &'a str,
 }
 
-impl<'a> Secret<'a> {
+impl<'a> SecretPath<'a> {
 	pub fn new(path: &'a str) -> Result<Self> {
 		let mut it = path.split(":");
 		let backend_str = it.next().ok_or_else(|| anyhow!("no backend"))?;
