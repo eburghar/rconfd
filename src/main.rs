@@ -41,7 +41,8 @@ use vaultk8s::{client::VaultClient, secret::Secret};
 async fn main_loop(args: &Args) -> Result<()> {
 	// Mutable variables defining the state inside the main loop
 	// initialize vault client
-	let mut client = async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
+	let mut client =
+		async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
 	// map template name to template conf
@@ -142,10 +143,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 
 							// schedule the newewal of the secret
 							if let Some(renew_delay) = secret.renew_delay() {
-								log::debug!(
-									"  Renew secret within {:?}",
-									renew_delay
-								);
+								log::debug!("  Renew secret within {:?}", renew_delay);
 								delay_task(
 									send_message(
 										sender.clone(),
@@ -235,15 +233,23 @@ async fn main_loop(args: &Args) -> Result<()> {
 					// set trace depth
 					state.set_max_trace(20);
 
+					// prepend args.dir if the template path is relative
+					let tmpl_path = if tmpl.starts_with("/") {
+						PathBuf::from(tmpl)
+					} else {
+						PathBuf::from(&args.dir).join(tmpl)
+					};
+
 					// add the template file
 					let val = state
-						.evaluate_file_raw(&PathBuf::from(tmpl))
+						.evaluate_file_raw(&PathBuf::from(tmpl_path))
 						.map_err(|e| anyhow::Error::msg(state.stringify_err(&e)))
 						.with_context(|| "template error")?;
 
-					// add a map of (name, value) in "secrets" extVar
+					// inject secret_key: secret_value in "secrets" extVar
 					let mut secrets_val = map::Map::new();
 					for (path, secret) in secrets.iter() {
+						// all secrets should have been fetched at that point so unwrap should not panic, otherwise it's a relevant panic
 						let secret = secret.as_ref().unwrap();
 						// add only the secrets declared in the template config
 						if let Some(name) = conf.secrets.get(path) {
