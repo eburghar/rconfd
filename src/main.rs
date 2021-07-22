@@ -294,7 +294,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 						let mut file = File::create(&path)?;
 						writeln!(file, "{}", data)
 							.with_context(|| format!("failed to write {:?}", &path))?;
-						log::info!("  {} successfuly generated", path.to_str().expect("path"));
+						log::info!("  {} generated", path.to_str().expect("path"));
 						// set file permissions
 						if let Ok(mode) = mode {
 							let mut perms = file.metadata()?.permissions();
@@ -310,17 +310,21 @@ async fn main_loop(args: &Args) -> Result<()> {
 						})?;
 					}
 
-					// if checksums changed and not on first run, then launch cmd
+					// if checksums changed and not on first run, then launch cmd if defined
 					if changes && !first_run {
-						let args: Vec<&str> = conf.cmd.split_whitespace().collect();
-						let mut cmd = Command::new(&args[0]);
-						if args.len() > 1 {
-							cmd.args(&args[1..]);
-						}
-						log::info!("  files changed. Executing \"{}\"", &conf.cmd);
-						let res = cmd.output();
-						if res.is_err() {
-							log::error!("Failed to execute \"{}\"", &conf.cmd);
+						if let Some(ref cmd_str) = conf.cmd {
+							let args: Vec<&str> = cmd_str.split_whitespace().collect();
+							if args.len() > 0 {
+								let mut cmd = Command::new(&args[0]);
+								if args.len() > 1 {
+									cmd.args(&args[1..]);
+								}
+								log::info!("  files changed. Executing \"{}\"", cmd_str);
+								let res = cmd.output();
+								if res.is_err() {
+									log::error!("Failed to execute \"{}\"", cmd_str);
+								}
+							}
 						}
 					}
 

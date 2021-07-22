@@ -74,7 +74,7 @@ pub struct TemplateConf {
 	/// secrets to inject in the jsonnet engine as "secrets" extVar
 	pub secrets: HashMap<String, String>,
 	/// command to spawn if some files have been modified
-	pub cmd: String,
+	pub cmd: Option<String>,
 }
 
 /// parse json to conf
@@ -83,7 +83,7 @@ pub fn parse_config(file: &Path) -> Result<Conf> {
 	Ok(serde_json::from_reader::<File, Conf>(reader)?)
 }
 
-/// list configfile from dir
+/// Return the list of config files inside dir
 /// TODO: use generics to return iterator
 pub fn config_files(dir: &String) -> Result<Vec<PathBuf>> {
 	fs::read_dir(dir)
