@@ -24,9 +24,8 @@ use anyhow::{anyhow, Context, Result};
 use async_std::{channel::unbounded, stream::StreamExt};
 use jrsonnet_evaluator::{
 	trace::{CompactFormat, PathResolver},
-	EvaluationState, FileImportResolver, ManifestFormat, Val,
+	EvaluationState, FileImportResolver, ManifestFormat
 };
-use jrsonnet_interner::IStr;
 use serde_json::{map, Value};
 use std::{
 	env,
@@ -233,6 +232,26 @@ async fn main_loop(args: &Args) -> Result<()> {
 					// set trace depth
 					state.set_max_trace(20);
 
+
+					// inject secret_key: secret_value in "secrets" extCode
+					let mut secrets_val = map::Map::new();
+					for (path, secret) in secrets.iter() {
+						// all secrets should have been fetched at that point so unwrap should not panic, otherwise it's a relevant panic
+						let secret = secret.as_ref().unwrap();
+						// add only the secrets declared in the template config
+						if let Some(name) = conf.secrets.get(path) {
+							secrets_val.insert(name.clone(), secret.value.clone());
+						}
+					}
+					let secrets_str = serde_json::to_string(&secrets_val)
+						.with_context(|| "failed to serialize the \"secrets\" variable")?;
+					state
+						.add_ext_code("secrets".into(), (&secrets_str as &str).into())
+						.map_err(|e| anyhow::Error::msg(state.stringify_err(&e)))
+						.with_context(|| {
+							"failed to add the \"secrets\" variable to the evaluation context"
+						})?;
+
 					// prepend args.dir if the template path is relative
 					let tmpl_path = if tmpl.starts_with("/") {
 						PathBuf::from(tmpl)
@@ -245,21 +264,6 @@ async fn main_loop(args: &Args) -> Result<()> {
 						.evaluate_file_raw(&PathBuf::from(tmpl_path))
 						.map_err(|e| anyhow::Error::msg(state.stringify_err(&e)))
 						.with_context(|| "template error")?;
-
-					// inject secret_key: secret_value in "secrets" extVar
-					let mut secrets_val = map::Map::new();
-					for (path, secret) in secrets.iter() {
-						// all secrets should have been fetched at that point so unwrap should not panic, otherwise it's a relevant panic
-						let secret = secret.as_ref().unwrap();
-						// add only the secrets declared in the template config
-						if let Some(name) = conf.secrets.get(path) {
-							secrets_val.insert(name.clone(), secret.value.clone());
-						}
-					}
-					state.add_ext_var(
-						IStr::from("secrets"),
-						Val::from(&Value::Object(secrets_val)),
-					);
 
 					// parse file mode
 					let mode = u32::from_str_radix(&conf.mode, 8);

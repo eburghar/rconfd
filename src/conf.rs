@@ -83,7 +83,7 @@ pub fn parse_config(file: &Path) -> Result<Conf> {
 	Ok(serde_json::from_reader::<File, Conf>(reader)?)
 }
 
-/// Return the list of config files inside dir
+/// Return the list of config files names inside dir
 /// TODO: use generics to return iterator
 pub fn config_files(dir: &String) -> Result<Vec<PathBuf>> {
 	fs::read_dir(dir)
