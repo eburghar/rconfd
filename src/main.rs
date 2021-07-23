@@ -24,7 +24,7 @@ use anyhow::{anyhow, Context, Result};
 use async_std::{channel::unbounded, stream::StreamExt};
 use jrsonnet_evaluator::{
 	trace::{CompactFormat, PathResolver},
-	EvaluationState, FileImportResolver, ManifestFormat
+	EvaluationState, FileImportResolver, ManifestFormat, Val
 };
 use serde_json::{map, Value};
 use std::{
@@ -36,6 +36,7 @@ use std::{
 	process::Command,
 };
 use vaultk8s::{client::VaultClient, secret::Secret};
+use jrsonnet_interner::IStr;
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// Mutable variables defining the state inside the main loop
@@ -232,8 +233,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 					// set trace depth
 					state.set_max_trace(20);
 
-
-					// inject secret_key: secret_value in "secrets" extCode
+					// inject secret_key: secret_value in "secrets" extVar
 					let mut secrets_val = map::Map::new();
 					for (path, secret) in secrets.iter() {
 						// all secrets should have been fetched at that point so unwrap should not panic, otherwise it's a relevant panic
@@ -243,14 +243,10 @@ async fn main_loop(args: &Args) -> Result<()> {
 							secrets_val.insert(name.clone(), secret.value.clone());
 						}
 					}
-					let secrets_str = serde_json::to_string(&secrets_val)
-						.with_context(|| "failed to serialize the \"secrets\" variable")?;
-					state
-						.add_ext_code("secrets".into(), (&secrets_str as &str).into())
-						.map_err(|e| anyhow::Error::msg(state.stringify_err(&e)))
-						.with_context(|| {
-							"failed to add the \"secrets\" variable to the evaluation context"
-						})?;
+					state.add_ext_var(
+						IStr::from("secrets"),
+						Val::from(&Value::Object(secrets_val)),
+					);
 
 					// prepend args.dir if the template path is relative
 					let tmpl_path = if tmpl.starts_with("/") {
