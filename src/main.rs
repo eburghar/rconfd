@@ -58,7 +58,9 @@ async fn main_loop(args: &Args) -> Result<()> {
 	let (sender, mut receiver) = unbounded::<Message>();
 
 	// for each .json files in the conf directory
-	let entries = config_files(&args.dir)?;
+	let mut entries = config_files(&args.dir)?;
+	// sort entries by lexicographic order so we can influence order of config processing
+	entries.sort_unstable();
 	for entry in entries.into_iter() {
 		// parse config files
 		log::info!("Loading {:?}", entry);

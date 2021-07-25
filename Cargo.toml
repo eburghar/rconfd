@@ -21,7 +21,7 @@ log = "0.4.14"
 serde = "1.0.126"
 serde_json = "1.0.64"
 sha1 = "0.6.0"
-vaultk8s = "0.2.0"
+vaultk8s = "0.3.0"
 
 [patch.crates-io]
 vaultk8s = { git = "https://github.com/eburghar/vaultk8s.git", branch = "master" }
