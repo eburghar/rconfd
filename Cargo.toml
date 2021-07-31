@@ -28,5 +28,5 @@ vaultk8s = "0.4.0"
 default = []
 
 [patch.crates-io]
-# vaultk8s = { git = "https://github.com/eburghar/vaultk8s.git", branch = "master" }
-vaultk8s = { path = "../vaultk8s" }
+vaultk8s = { git = "https://github.com/eburghar/vaultk8s.git", branch = "master" }
+# vaultk8s = { path = "../vaultk8s" }
