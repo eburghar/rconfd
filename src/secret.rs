@@ -1,10 +1,15 @@
-use anyhow::{anyhow, Result};
+use crate::error::Error;
+
+use anyhow::Result;
 use std::{
 	collections::HashMap,
+	convert::TryFrom,
 	ops::{Deref, DerefMut},
+	fmt
 };
 use vaultk8s::secret::Secret;
 
+/// new type to define new methods over HashMap
 pub struct Secrets(HashMap<String, Option<Secret>>);
 
 impl Deref for Secrets {
@@ -45,7 +50,7 @@ impl Secrets {
 }
 
 /// The different types of supported backend
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Backend {
 	/// Vault
 	Vault,
@@ -62,40 +67,51 @@ const BACKENDS: &'static [(&'static str, Backend)] = &[
 	("file", Backend::File),
 ];
 
-/// transform a backend str into its enum representation
-pub fn backend_path(path: &str) -> Result<Backend> {
-	BACKENDS
-		.iter()
-		.find_map(|(prefix, backend)| {
-			if path.starts_with(*prefix) {
-				Some(*backend)
-			} else {
-				None
+impl<'a> fmt::Display for Backend {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		for (s, b) in BACKENDS.iter() {
+			if self == b {
+				return write!(f, "{}", s);
 			}
-		})
-		.ok_or_else(|| anyhow!("unknown backend \"{}\"", path))
+		}
+		Ok(())
+	}
 }
 
-/// Split a secret path into its 3 components: backend, args and path
+/// Convert a backend text representation into its enum
+impl<'a> TryFrom<&'a str> for Backend {
+	type Error = Error;
+
+	fn try_from(backend_str: &'a str) -> Result<Self, Self::Error> {
+		BACKENDS
+			.iter()
+			.find_map(|(prefix, backend)| {
+				if backend_str.starts_with(*prefix) {
+					Some(*backend)
+				} else {
+					None
+				}
+			})
+			.ok_or(Error::UnknowBackend(backend_str.to_owned()))
+	}
+}
+/// Deserialize a secret path
 pub struct SecretPath<'a> {
 	pub backend: Backend,
-	pub args: &'a str,
+	pub args: Vec<&'a str>,
+	pub kwargs: Option<Vec<(&'a str, &'a str)>>,
 	pub path: &'a str,
 }
 
-impl<'a> SecretPath<'a> {
-	pub fn new(path: &'a str) -> Result<Self> {
-		let mut it = path.split(":");
-		let backend_str = it.next().ok_or_else(|| anyhow!("no backend"))?;
-		let args = it.next().ok_or_else(|| anyhow!("no args"))?;
-		let path = it.next().ok_or_else(|| anyhow!("no path"))?;
-		if it.next().is_some() {
-			anyhow!("extra ':' in path");
+/// Serialize a SecretPath
+impl<'a> fmt::Display for SecretPath<'a> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		write!(f, "{}:{}", self.backend, self.args.join(","))?;
+		if let Some(ref kwargs) = self.kwargs {
+			for (k, v) in kwargs.iter() {
+				write!(f, ",{}={}", k, v)?;
+			}
 		}
-		Ok(Self {
-			backend: backend_path(backend_str)?,
-			args,
-			path,
-		})
+		write!(f, ":{}", self.path)
 	}
 }

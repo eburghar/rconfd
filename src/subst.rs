@@ -62,16 +62,16 @@ impl<'a> Iterator for SubstIterator<'a> {
 
 /// return expr with expression ${VAR} subsitued by variable content
 /// TODO: use a COW
-pub fn subst_var(expr: &str) -> Result<String> {
+pub fn subst_envar(s: &str) -> Result<String> {
 	let mut res = String::new();
-	for token in SubstIterator::new(expr) {
+	for token in SubstIterator::new(s) {
 		match token {
 			Token::Str(chunk) => {
 				res += chunk;
 			}
 			Token::Var(name) => {
 				let val = env::var(name)
-					.with_context(|| format!("unable to substitute ${{{}}} in {}", name, expr))?;
+					.with_context(|| format!("unable to substitute ${{{}}} in {}", name, s))?;
 				res += &val;
 			}
 			Token::BraceError => Err(anyhow!("no matching } found"))?,

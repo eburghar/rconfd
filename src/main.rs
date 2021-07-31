@@ -1,8 +1,13 @@
 mod args;
 mod checksum;
 mod conf;
+mod error;
 mod libc;
 mod message;
+#[cfg(feature = "nom")]
+mod parser;
+#[cfg(not(feature = "nom"))]
+mod parser_simple;
 mod s6;
 mod secret;
 mod subst;
@@ -16,7 +21,6 @@ use crate::{
 	message::{send_message, Message},
 	s6::s6_ready,
 	secret::{Backend, SecretPath, Secrets},
-	subst::subst_var,
 	task::delay_task,
 };
 
@@ -24,10 +28,12 @@ use anyhow::{anyhow, Context, Result};
 use async_std::{channel::unbounded, stream::StreamExt};
 use jrsonnet_evaluator::{
 	trace::{CompactFormat, PathResolver},
-	EvaluationState, FileImportResolver, ManifestFormat, Val
+	EvaluationState, FileImportResolver, ManifestFormat, Val,
 };
+use jrsonnet_interner::IStr;
 use serde_json::{map, Value};
 use std::{
+	convert::TryFrom,
 	env,
 	fs::{create_dir_all, File},
 	io::{BufReader, Read, Write},
@@ -36,15 +42,16 @@ use std::{
 	process::Command,
 };
 use vaultk8s::{client::VaultClient, secret::Secret};
-use jrsonnet_interner::IStr;
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// Mutable variables defining the state inside the main loop
-	// initialize vault client
+	// initialize a vault client
 	let mut client =
 		async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
+	// map secret path to parsed SecretPath
+	// let mut secret_paths = SecretPaths::new();
 	// map template name to template conf
 	let mut confs = TemplateConfs::new();
 	// map path to checksums
@@ -72,17 +79,20 @@ async fn main_loop(args: &Args) -> Result<()> {
 			confs.insert(tmpl.clone(), conf);
 
 			let secrets_map = &confs.get(&tmpl).unwrap().secrets;
-			if secrets_map.len() == 0 {
-				// if no secrets generate template
+			if secrets_map.is_empty() {
+				// if no secrets generate template straight away
 				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
 			} else {
 				// otherwise fetch all the secrets defined in the template config
 				for (path, _) in secrets_map.iter() {
-					let secret = SecretPath::new(path)
-						.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
+					// parse the secret
+					let secret = SecretPath::try_from(path)
+						.with_context(|| format!("failed to parse \"{}\"", path))?;
 					if secret.backend == Backend::Vault {
 						// ask the broker to login first
-						sender.send(Message::Login(secret.args.to_owned())).await?;
+						sender
+							.send(Message::Login(secret.args[0].to_owned()))
+							.await?;
 					}
 					// intialize secret to None
 					secrets.insert(path.clone(), None);
@@ -96,11 +106,10 @@ async fn main_loop(args: &Args) -> Result<()> {
 	// actor loop
 	while let Some(msg) = receiver.next().await {
 		match msg {
-			Message::Login(ref role) => {
-				let role = subst_var(role)?;
+			Message::Login(role) => {
 				// log in if not already logged in with that role
 				if !client.is_logged(&role) {
-					log::debug!("  Login({})", role);
+					log::debug!("  Login({})", &role);
 					let auth = client.login(&role).await.with_context(|| {
 						format!("failed to login to vault server {}", &args.url)
 					})?;
@@ -120,86 +129,89 @@ async fn main_loop(args: &Args) -> Result<()> {
 				}
 			}
 
-			Message::GetSecret(ref path) => {
-				// get the secret if it's not valid
+			Message::GetSecret(path) => {
+				// get the secret if not already fetched or if it's not valid
 				if secrets
-					.get(path)
+					.get(&path)
 					.filter(|o| o.as_ref().filter(|s| s.is_valid()).is_some())
 					.is_none()
 				{
-					log::debug!("  GetSecret({})", path);
-					let secret = SecretPath::new(path)
-						.with_context(|| format!("failed to parse secret path \"{}\"", path))?;
+					log::debug!("  GetSecret({})", &path);
+					// parse the secret (again ? it's cheap and contains only reference from path)
+					let secret = SecretPath::try_from(&path)
+						.with_context(|| format!("failed to parse \"{}\"", path))?;
+					let role = secret
+						.args
+						.get(0)
+						.ok_or(anyhow!("missing role argument after \"vault:\""))?;
+					let method = secret.args.get(1).unwrap_or(&"get").to_ascii_uppercase();
 					match secret.backend {
 						Backend::Vault => {
-							let secret_args = subst_var(secret.args)?;
-							let secret_path = subst_var(secret.path)?;
-
 							// fetch the secret
 							let secret = client
-								.get_secret(&secret_args, &secret_path)
+								.get_secret(
+									role,
+									&method,
+									&secret.path,
+									secret.kwargs.as_ref()
+								)
 								.await
 								.with_context(|| {
-									format!("failed to get the secret \"{}\"", &secret_path)
+									format!("failed to get the secret \"{}\"", &secret.path)
 								})?;
 
 							// schedule the newewal of the secret
 							if let Some(renew_delay) = secret.renew_delay() {
 								log::debug!("  Renew secret within {:?}", renew_delay);
 								delay_task(
-									send_message(
-										sender.clone(),
-										Message::GetSecret(path.to_owned()),
-									),
+									send_message(sender.clone(), Message::GetSecret(path.clone())),
 									renew_delay,
 								);
 							}
 
 							// replace secret value an regenerate template if necessary
-							if secrets.replace(path, secret) {
-								confs.generate_templates(&secrets, path, &sender).await?;
+							if secrets.replace(&path, secret) {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
 						Backend::Env => {
-							let secret_path = subst_var(secret.path)?;
-							let value = match secret.args {
-								"str" => {
-									Value::String(env::var(&secret_path).unwrap_or("".to_owned()))
-								},
-								"js" => {
-									serde_json::from_str(&env::var(&secret_path).unwrap_or("\"\"".to_owned()))
-										.with_context(|| {
-											format!("failed to parse \"{}\" variable content", &secret_path)
-										})?
-								},
-								_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args))?
-							};
+							let value = match secret.args[0] {
+									"str" => {
+										Value::String(env::var(&secret.path).unwrap_or("".to_owned()))
+									},
+									"js" => {
+										serde_json::from_str(&env::var(&secret.path).unwrap_or("\"\"".to_owned()))
+											.with_context(|| {
+												format!("failed to parse \"{}\" variable content", &secret.path)
+											})?
+									},
+									_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args[0]))?
+								};
 							if secrets.replace(&path, Secret::new(value, None)) {
-								confs.generate_templates(&secrets, path, &sender).await?;
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
 						Backend::File => {
-							let secret_path = subst_var(secret.path)?;
-							let mut file = File::open(&secret_path)
-								.with_context(|| format!("failed to open \"{}\"", &secret_path))?;
+							let mut file = File::open(&secret.path)
+								.with_context(|| format!("failed to open \"{}\"", &secret.path))?;
 
-							let value = match secret.args {
-								"str" => {
-									let mut buffer = String::new();
-									file.read_to_string(&mut buffer).with_context(|| format!("failed to read \"{}\"", &secret_path))?;
-									Value::String(buffer)
-								},
-								"js" => {
-									let reader = BufReader::new(file);
-									serde_json::from_reader(reader)
-										.with_context(|| format!("failed to parse file \"{}\"", &secret_path))?
-								},
-								_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args))?
-							};
-							if secrets.replace(path, Secret::new(value, None)) {
-								confs.generate_templates(&secrets, path, &sender).await?;
+							let value = match secret.args[0] {
+									"str" => {
+										let mut buffer = String::new();
+										file.read_to_string(&mut buffer).with_context(|| format!("failed to read \"{}\"", &secret.path))?;
+										Value::String(buffer)
+									},
+									"js" => {
+										let reader = BufReader::new(file);
+										serde_json::from_reader(reader)
+											.with_context(|| format!("failed to parse file \"{}\"", &secret.path))?
+									},
+									_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args[0]))?
+								};
+							if secrets.replace(&path, Secret::new(value, None)) {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 					}

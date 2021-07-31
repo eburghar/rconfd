@@ -29,7 +29,7 @@ using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jr
 interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using stdc++17
 and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too hard to
 understand and maintain. I never managed to allocate resources to add the missing features or fix some obvious
-bugs. In contrast I implemented all features for rconfd in just 2 days.
+bugs. In contrast I ported all `cconfd` features for `rconfd` in just 2 days.
 
 Once you know rust, you are just forced to recognize that despite its iterations, c++ is just getting older,
 weirder and dustier. `rconfd` is way better than `cconfd` in every aspects: feature complete, faster, smarter,
@@ -44,12 +44,12 @@ which defeat the purpose of using jsonnet in the first place).
 
 Jsonnet permits using complex operations for merging, adding, overriding and allowing you to easily and securely
 specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
-with the `file` and `env` back-ends, you can easily compose your configuration files.
+with the `file` and `env` back-ends, you can easily compose your configuration files at startup.
 
 ## Usage
 
 ```
-rconfd 0.5.0
+rconfd 0.6.0
 
 Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
 
@@ -72,7 +72,8 @@ Options:
 `rconfd` takes its instructions from one or several json files laying inside a directory (`-d` argument).
 
 Each configuration declares one or several jsonnet template files which in turn generate one or several configuration
-files. Here is a simple `test.json` file declaring one template.
+files. Here is a simple `test.json` file declaring one template, and using 3 different secrets backend, using 2
+different http methods (`GET` by default, and `POST`).
 
 ```json
 {
@@ -81,7 +82,9 @@ files. Here is a simple `test.json` file declaring one template.
 		"mode": "0644",
 		"user": "test-user",
 		"secrets": {
-			"vault:test-role:kv/data/test/mysecret": "mysecret",
+			"vault:${NAMESPACE}-role:kv/data/test/mysecret": "mysecret",
+			"vault:${NAMESPACE}-role:database/creds/mydb": "mydb",
+			"vault:${NAMESPACE}-role,POST,common_name=example.com:pki/issue/example.com": "cert",
 			"env:str:NAMESPACE": "namespace",
 			"file:js:file.json": "file"
 		},
@@ -90,18 +93,18 @@ files. Here is a simple `test.json` file declaring one template.
 }
 ```
 
-The template `test.jsonnet` is a multi output jsonnet template which means that the root keys of the jsonnet template
-represents the paths of the files to be generated, while the values represent the templates. `dir` is used
-if a key is a relative path, `user` and `mode` set the owner and file permissions on successful manifestation.
+The template `test.jsonnet` is a multi output jsonnet template which means that the root keys represent the paths
+of the files to be generated, while the values represent the templates. `dir` is used if a key is a relative path,
+`user` and `mode` set the owner and file permissions on successful manifestation.
 
 `secrets` is a map of secret path and variable name inserted in a `secrets`
 [extVar](https://jsonnet.org/ref/stdlib.html) variable. The path has the following syntax:
-`back-end:args:path`. For the vault back-end, `args` and `path` can contains environment variables substitutions
-like `vault:${NAMESPACE}-mail:kv/data/${NAMESPACE}/mail` for `vault` while for `env` and `file` back-ends, only
-`path` can contain variable substitutions.
+`back-end:arg1,arg2,k1=v1,k2=v2:path`. It can contain environment variables expressions which will be
+substitued before parsing, in which case the resulting string should conform to the aforementioned syntax.
 
 There are 3 back-ends:
-- `vault`: fetch a secret from the vault server using `args` as a `role` name
+- `vault`: fetch a secret from the vault server using `arg1` as a `role` name for authentication, and `arg2` as the
+   optional http method (`GET` by default). keywords arguments are sent in the body of the request.
 - `env`: fetch the environment variable and parse it as a json if `args` == `js` or keep it as a string if `str`
 - `file`: fetch the content of the file and parse it as a json value if `args` == `js` or keep it as a string if `str`
 
@@ -122,13 +125,15 @@ Using the `test.json` file above, we could write the following `test.jsonnet` te
 inside the `/etc/test` directory.
 
 ```jsonnet
+local secrets = std.extVar("secrets");
 {
 	// we define shortcuts for easy access to the secret extVar
 	// the :: is to tell jsonnet to not consider the key as a file to generate
-	secrets:: std.extVar("secrets"),
-	mysecret:: self.secrets['mysecret'],
-	namespace:: self.secrets['namespace'],
-	file:: self.secrets['file'],
+	// kv2 secret backend containd data and metadata so go directly to the point
+	mysecret:: secrets['mysecret'],
+	namespace:: secrets['namespace'],
+	file:: secrets['file'],
+	cert:: secrets['cert'],
 
 	// just dump all secrets using json manifestation
 	'config.json': std.manifestJsonEx({
@@ -136,5 +141,12 @@ inside the `/etc/test` directory.
 		namespace: $.namespace,
 		file: $.file
 	}, '  ')
+
+	// save certificate and key in separate files
+	'cert.crt': $.cert['certificate'],
+	'cert.key': $.cert['private_key'],
+
+	// condition file manifestation
+	[if secrets['file']['test'] == 'true' then 'key']: 'val'
 }
 ```
