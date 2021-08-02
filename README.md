@@ -78,7 +78,7 @@ files.
 
 Here is a simple `test.json` file declaring only one template, and using all 3 different secrets backends. We use
 4 different secrets engines with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv-v2),
-[pki](https://www.vaultproject.io/docs/secrets/pki), [databases]https://www.vaultproject.io/docs/secrets/databases),
+[pki](https://www.vaultproject.io/docs/secrets/pki), [databases](https://www.vaultproject.io/docs/secrets/databases),
 [transit](https://www.vaultproject.io/docs/secrets/transit)) which require using 2 differents http methods (`GET`
 by default, and `POST`).
 
