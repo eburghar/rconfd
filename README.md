@@ -12,17 +12,19 @@ and it can launch arbitrary command when configuration change.
 
 There is a lot of alternatives for generating configuration files at runtime under kubernetes with
 various template engines and secrets back-ends ([cconfd](https://github.com/kelseyhightower/confd),
-[consul-template](https://github.com/hashicorp/consul-template), ...) but because it can run a lot of containers
-in the same host, I wanted the lightest and fastest implementation as possible with a minimal surface attack,
-even at the cost of flexibility (few back-ends, one template engine). Rust beats C/C++ and all other languages in
-all those aspects by a comfortable margin while giving you correctness and easy maintenance with no special efforts.
+[consul-template](https://github.com/hashicorp/consul-template)... but because it
+can run a lot of containers in the same host, I wanted the lightest and fastest implementation as possible with a
+minimal surface attack, even at the cost of flexibility (few back-ends, one template engine). Rust beats C/C++ and
+all other languages in all those aspects by a comfortable margin while giving you correctness and easy maintenance
+with no special efforts.
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
-in the rigid general approach of one executable per container, which forces you to decouple your software stack
-under kubernetes into init containers, inject containers, side car containers, with liveliness and readiness
-tests and blind kill and restart on timeout if conditions are not not met. With several service in a container,
-the orchestration is simple and smarter, it starts faster, and scale better without putting unnecessary pressure
-on your orchestration supervisor or container runtime.
+in the rigid general approach of one executable per container, which forces you to decouple your software
+stack under kubernetes into init containers, inject containers, side car containers, with liveliness
+and readiness tests and blind kill and restart on timeout if conditions are not not met (like [vault
+injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)). With several
+service in a container, the orchestration is simple and smarter, it starts faster, and scale better without putting
+unnecessary pressure on your orchestration supervisor or container runtime.
 
 `rconfd` is a rewrite of the C++ [cconfd](https://github.com/eburghar/cconfd) utility
 using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jrsonnet
@@ -90,7 +92,7 @@ by default, and `POST`).
 			"vault:${NAMESPACE}-role:kv/data/test/mysecret": "mysecret",
 			"vault:${NAMESPACE}-role:database/creds/mydb": "mydb",
 			"vault:${NAMESPACE}-role,POST,common_name=example.com:pki/issue/example.com": "cert",
-			"vault:${NAMESPACE}-role,POST,input=password:transit/hmac/mysecret", "mysecret2",
+			"vault:${NAMESPACE}-role,POST,input=password:transit/hmac/mysecret": "mysecret2",
 			"env:str:NAMESPACE": "namespace",
 			"file:js:file.json": "file"
 		},
@@ -106,7 +108,7 @@ of the files to be generated, while the values represent the templates. `dir` is
 `secrets` maps secret path to variable name, and are accessible inside jsonnet templates through a
 `secrets` [extVar](https://jsonnet.org/ref/stdlib.html) variable. The path has the following syntax:
 `backend:arg1,arg2,k1=v1,k2=v2:path`, and can contain environment variables expressions `${NAME}`, in which case
-it is the resulting string, after substiturions, that should conform to the aforementioned syntax.
+it is the resulting string, after substitutions, that should conform to the aforementioned syntax.
 
 There are currently 3 supported back-ends:
 - `vault`: fetch a secret from the vault server using `arg1` as a `role` name for authentication, and `arg2` as the
