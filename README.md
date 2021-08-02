@@ -137,7 +137,7 @@ local secrets = std.extVar("secrets");
 {
 	// we define shortcuts for easy access to the secret extVar
 	// the :: is to tell jsonnet to not consider the key as a file to generate
-	// kv2 secret backend containd data and metadata so go directly to the point
+	// kv2 secret backend contains data and metadata so go directly to the point
 	mysecret:: secrets['mysecret'],
 	mysecret2:: secrets['mysecret2'],
 	namespace:: secrets['namespace'],
@@ -156,7 +156,7 @@ local secrets = std.extVar("secrets");
 	'cert.crt': $.cert['certificate'],
 	'cert.key': $.cert['private_key'],
 
-	// condition file manifestation
+	// conditional file manifestation
 	[if secrets['file']['test'] == 'true' then 'key']: 'val'
 }
 ```
