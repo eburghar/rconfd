@@ -114,8 +114,8 @@ fn arg1(input: &str) -> IResult<Args> {
 
 /// separate argurments into simple and keyword arguments
 fn splitargs(args: Args) -> (Vec<&str>, Option<Vec<(&str, &str)>>) {
-	let mut args_: Vec<&str> = Vec::new();
-	let mut kwargs_: Vec<(&str, &str)> = Vec::new();
+	let mut args_: Vec<&str> = Vec::with_capacity(args.len());
+	let mut kwargs_: Vec<(&str, &str)> = Vec::with_capacity(args.len());
 	for arg in args.into_iter() {
 		match arg {
 			Arg::Arg(s) => args_.push(s),

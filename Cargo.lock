@@ -983,7 +983,7 @@ checksum = "941ba9d78d8e2f7ce474c015eea4d9c6d25b6a3327f9832ee29a4de27f91bbb8"
 
 [[package]]
 name = "rconfd"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "argh",
@@ -1313,7 +1313,8 @@ dependencies = [
 
 [[package]]
 name = "vaultk8s"
-version = "0.4.0"
+version = "0.4.1"
+source = "git+https://github.com/eburghar/vaultk8s.git?branch=master#303c99c1a9e86f64795151acbed361a6e3f7df4d"
 dependencies = [
  "isahc",
  "log",

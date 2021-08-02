@@ -72,8 +72,13 @@ Options:
 `rconfd` takes its instructions from one or several json files laying inside a directory (`-d` argument).
 
 Each configuration declares one or several jsonnet template files which in turn generate one or several configuration
-files. Here is a simple `test.json` file declaring one template, and using 3 different secrets backend, using 2
-different http methods (`GET` by default, and `POST`).
+files.
+
+Here is a simple `test.json` file declaring only one template, and using all 3 different secrets backends. We use
+4 different secrets engines with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv-v2),
+[pki](https://www.vaultproject.io/docs/secrets/pki), [databases]https://www.vaultproject.io/docs/secrets/databases),
+[transit](https://www.vaultproject.io/docs/secrets/transit)) which require using 2 differents http methods (`GET`
+by default, and `POST`).
 
 ```json
 {
@@ -85,6 +90,7 @@ different http methods (`GET` by default, and `POST`).
 			"vault:${NAMESPACE}-role:kv/data/test/mysecret": "mysecret",
 			"vault:${NAMESPACE}-role:database/creds/mydb": "mydb",
 			"vault:${NAMESPACE}-role,POST,common_name=example.com:pki/issue/example.com": "cert",
+			"vault:${NAMESPACE}-role,POST,input=password:transit/hmac/mysecret", "mysecret2",
 			"env:str:NAMESPACE": "namespace",
 			"file:js:file.json": "file"
 		},
@@ -93,16 +99,16 @@ different http methods (`GET` by default, and `POST`).
 }
 ```
 
-The template `test.jsonnet` is a multi output jsonnet template which means that the root keys represent the paths
+The template `test.jsonnet` is a multi file output jsonnet template which means that the root keys represent the paths
 of the files to be generated, while the values represent the templates. `dir` is used if a key is a relative path,
 `user` and `mode` set the owner and file permissions on successful manifestation.
 
-`secrets` is a map of secret path and variable name inserted in a `secrets`
-[extVar](https://jsonnet.org/ref/stdlib.html) variable. The path has the following syntax:
-`back-end:arg1,arg2,k1=v1,k2=v2:path`. It can contain environment variables expressions which will be
-substitued before parsing, in which case the resulting string should conform to the aforementioned syntax.
+`secrets` maps secret path to variable name, and are accessible inside jsonnet templates through a
+`secrets` [extVar](https://jsonnet.org/ref/stdlib.html) variable. The path has the following syntax:
+`backend:arg1,arg2,k1=v1,k2=v2:path`, and can contain environment variables expressions `${NAME}`, in which case
+it is the resulting string, after substiturions, that should conform to the aforementioned syntax.
 
-There are 3 back-ends:
+There are currently 3 supported back-ends:
 - `vault`: fetch a secret from the vault server using `arg1` as a `role` name for authentication, and `arg2` as the
    optional http method (`GET` by default). keywords arguments are sent in the body of the request.
 - `env`: fetch the environment variable and parse it as a json if `args` == `js` or keep it as a string if `str`
@@ -131,6 +137,7 @@ local secrets = std.extVar("secrets");
 	// the :: is to tell jsonnet to not consider the key as a file to generate
 	// kv2 secret backend containd data and metadata so go directly to the point
 	mysecret:: secrets['mysecret'],
+	mysecret2:: secrets['mysecret2'],
 	namespace:: secrets['namespace'],
 	file:: secrets['file'],
 	cert:: secrets['cert'],
@@ -138,6 +145,7 @@ local secrets = std.extVar("secrets");
 	// just dump all secrets using json manifestation
 	'config.json': std.manifestJsonEx({
 		mysecret: $.mysecret,
+		mysecret2: std.split($.mysecret2.hmac, ':')[2],
 		namespace: $.namespace,
 		file: $.file
 	}, '  ')

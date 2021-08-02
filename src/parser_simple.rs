@@ -20,8 +20,8 @@ impl<'a> TryFrom<&'a String> for SecretPath<'a> {
 			Err(Error::ExtraData(path.to_owned()))?;
 		}
 		// split simple and keyword arguments in separate lists
-		let mut args = Vec::new();
-		let mut kwargs = Vec::new();
+		let mut args = Vec::with_capacity(args_.len());
+		let mut kwargs = Vec::with_capacity(args_.len());
 		for arg in args_.split(",") {
 			if let Some(pos) = arg.find('=') {
 				kwargs.push((&arg[..pos], &arg[pos + 1..]));

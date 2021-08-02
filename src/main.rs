@@ -31,7 +31,7 @@ use jrsonnet_evaluator::{
 	EvaluationState, FileImportResolver, ManifestFormat, Val,
 };
 use jrsonnet_interner::IStr;
-use serde_json::{map, Value};
+use serde_json::{Map, Value};
 use std::{
 	convert::TryFrom,
 	env,
@@ -50,8 +50,6 @@ async fn main_loop(args: &Args) -> Result<()> {
 		async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
-	// map secret path to parsed SecretPath
-	// let mut secret_paths = SecretPaths::new();
 	// map template name to template conf
 	let mut confs = TemplateConfs::new();
 	// map path to checksums
@@ -85,19 +83,22 @@ async fn main_loop(args: &Args) -> Result<()> {
 			} else {
 				// otherwise fetch all the secrets defined in the template config
 				for (path, _) in secrets_map.iter() {
-					// parse the secret
-					let secret = SecretPath::try_from(path)
-						.with_context(|| format!("failed to parse \"{}\"", path))?;
-					if secret.backend == Backend::Vault {
-						// ask the broker to login first
-						sender
-							.send(Message::Login(secret.args[0].to_owned()))
-							.await?;
+					// if we didn't already ask to get the secret
+					if secrets.get(path).is_none() {
+						// parse the secret
+						let secret = SecretPath::try_from(path)
+							.with_context(|| format!("failed to parse \"{}\"", path))?;
+						if secret.backend == Backend::Vault {
+							// ask the broker to login first
+							sender
+								.send(Message::Login(secret.args[0].to_owned()))
+								.await?;
+						}
+						// intialize secret to None
+						secrets.insert(path.clone(), None);
+						// ask the broker to get the secret initial value
+						sender.send(Message::GetSecret(path.to_owned())).await?
 					}
-					// intialize secret to None
-					secrets.insert(path.clone(), None);
-					// ask the broker to get the secret initial value
-					sender.send(Message::GetSecret(path.to_owned())).await?
 				}
 			}
 		}
@@ -130,10 +131,14 @@ async fn main_loop(args: &Args) -> Result<()> {
 			}
 
 			Message::GetSecret(path) => {
-				// get the secret if not already fetched or if it's not valid
+				// get the secret if not already fetched or if it's not valid or it it needs to be renewed
 				if secrets
 					.get(&path)
-					.filter(|o| o.as_ref().filter(|s| s.is_valid()).is_some())
+					.filter(|o| {
+						o.as_ref()
+							.filter(|s| s.is_valid() && !s.to_renew())
+							.is_some()
+					})
 					.is_none()
 				{
 					log::debug!("  GetSecret({})", &path);
@@ -149,12 +154,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 						Backend::Vault => {
 							// fetch the secret
 							let secret = client
-								.get_secret(
-									role,
-									&method,
-									&secret.path,
-									secret.kwargs.as_ref()
-								)
+								.get_secret(role, &method, &secret.path, secret.kwargs.as_ref())
 								.await
 								.with_context(|| {
 									format!("failed to get the secret \"{}\"", &secret.path)
@@ -248,7 +248,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 					state.set_max_trace(20);
 
 					// inject secret_key: secret_value in "secrets" extVar
-					let mut secrets_val = map::Map::new();
+					let mut secrets_val = Map::with_capacity(secrets.len());
 					for (path, secret) in secrets.iter() {
 						// all secrets should have been fetched at that point so unwrap should not panic, otherwise it's a relevant panic
 						let secret = secret.as_ref().unwrap();
@@ -346,6 +346,8 @@ async fn main_loop(args: &Args) -> Result<()> {
 					generated += 1;
 					// if all templates have been generated
 					if generated == confs.len() {
+						// reset generated
+						generated = 0;
 						// first_run complete
 						first_run = false;
 						// signal s6 readiness that all config files have been generated
