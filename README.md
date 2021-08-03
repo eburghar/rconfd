@@ -30,13 +30,13 @@ using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jr
 interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using
 stdc++17 and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too
 hard to understand and maintain. I never managed to allocate resources to add the missing features or fix some
-obvious bugs. In contrast I ported all `cconfd` features for `rconfd` in just 2 days, and now as consider it
+obvious bugs. In contrast I ported all `cconfd` features for `rconfd` in just 2 days, and now as I consider it
 feature complete, I know it is also faster, smarter, lighter, maintainable, thread and memory safe.
 
 # jsonnet ?
 
 Configuration files are structured by nature. Using a text templating system ([mustache](https://mustache.github.io/)
-like) for generating them expose you to malformations (you forgot to close a `(` or a `{`, bad indent a loop,
+like) for generating them expose you to malformations (you forgot to close a `(` or a `{`, bad indent in a loop,
 ...), injection attacks, and escaping hell. With jsonnet it's impossible to generate malformed files, unless you
 use string templates, which defeat the purpose of using jsonnet (objects) in the first place.
 
@@ -44,7 +44,7 @@ Jsonnet permits using complex operations for merging, adding, overriding and all
 specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
 with the `file` and `env` back-ends, you can easily compose your configuration files at startup.
 
-## Usage
+# Usage
 
 ```
 rconfd 0.6.0
@@ -96,7 +96,7 @@ use a role based on the namespace where you have deployed your pod.
 			"env:str:NAMESPACE": "namespace",
 			"file:js:file.json": "file"
 		},
-		"cmd": "echo reload"
+		"cmd": "echo reloading"
 	}
 }
 ```
@@ -153,7 +153,7 @@ if { s6-test ${?} = 0 }
 - `import-as` substitutes variable expressions present in its args (remaining script) and use a reasonable default value for
   VAULT_URL if undefined.
 - then we launch rconfd in daemon mode, and wait for completion in the foreground
-- if the daemon exists normally (because only static secrets are used and it's useless to stay running in this
+- if the daemon exits normally (because only static secrets are used and it's useless to stay running in this
   case), we replace rconfd with the smallest daemon implementation possible
   ([`s6-pause`](https://skarnet.org/software/s6-portable-utils/s6-pause.html)), which just wait forever without
   consuming any resources (but still react to restart signals). Otherwise, we exit and rconfd service will just be
@@ -165,10 +165,20 @@ For other services you then use startup script like this one, to passively wait 
 #!/usr/bin/execlineb -P
 foreground { s6-svwait -U /var/run/s6/services/rconfd }
 importas -u ? ?
-foreground { s6-echo start myservice }
-s6-setuidgid myservice
-cd /var/lib/myservice
-/usr/bin/myservice
+if { s6-test ${?} = 0 }
+	foreground { s6-echo start myservice }
+	s6-setuidgid myservice
+	cd /var/lib/myservice
+	/usr/bin/myservice
+```
+
+In the cmd part of the rconfd config file you can signal (here a simple reload) a given service when configuration
+have changed with something like
+
+```json
+{
+        "cmd": "/bin/s6-svc -h /var/run/s6/services/myservice"
+}
 ```
 
 # Example
