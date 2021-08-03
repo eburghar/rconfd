@@ -12,37 +12,33 @@ and it can launch arbitrary command when configuration change.
 
 There is a lot of alternatives for generating configuration files at runtime under kubernetes with
 various template engines and secrets back-ends ([cconfd](https://github.com/kelseyhightower/confd),
-[consul-template](https://github.com/hashicorp/consul-template)... but because it
-can run a lot of containers in the same host, I wanted the lightest and fastest implementation as possible with a
-minimal surface attack, even at the cost of flexibility (few back-ends, one template engine). Rust beats C/C++ and
-all other languages in all those aspects by a comfortable margin while giving you correctness and easy maintenance
-with no special efforts.
+[consul-template](https://github.com/hashicorp/consul-template)...) but because it can run a lot of containers
+in the same host, I wanted the lightest and fastest implementation as possible with a minimal surface attack,
+even at the cost of flexibility (few back-ends, one template engine). Rust match C/C++ speed while giving you
+safetyness, correctness and easy maintenance with no special efforts.
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
-in the rigid general approach of one executable per container, which forces you to decouple your software
-stack under kubernetes into init containers, inject containers, side car containers, with liveliness
-and readiness tests and blind kill and restart on timeout if conditions are not not met (like [vault
-injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)). With several
-service in a container, the orchestration is simple and smarter, it starts faster, and scale better without putting
-unnecessary pressure on your orchestration supervisor or container runtime.
+in the rigid general approach of one executable per container, which forces you to decouple your software stack
+under kubernetes into init containers, inject containers, side car containers, with liveliness and readiness
+tests and blind kill and restart on timeout if conditions are not not met (which is the approach of [vault
+injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)). With several service
+in a container, the orchestration is simple and smarter, it starts faster, and scale without putting unnecessary
+pressure on your orchestration supervisor or container runtime.
 
 `rconfd` is a rewrite of the C++ [cconfd](https://github.com/eburghar/cconfd) utility
 using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jrsonnet
-interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using stdc++17
-and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too hard to
-understand and maintain. I never managed to allocate resources to add the missing features or fix some obvious
-bugs. In contrast I ported all `cconfd` features for `rconfd` in just 2 days.
-
-Once you know rust, you are just forced to recognize that despite its iterations, c++ is just getting older,
-weirder and dustier. `rconfd` is way better than `cconfd` in every aspects: feature complete, faster, smarter,
-lighter, maintainable, thread and memory safe.
+interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using
+stdc++17 and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too
+hard to understand and maintain. I never managed to allocate resources to add the missing features or fix some
+obvious bugs. In contrast I ported all `cconfd` features for `rconfd` in just 2 days, and now as consider it
+feature complete, I know it is also faster, smarter, lighter, maintainable, thread and memory safe.
 
 # jsonnet ?
 
-Configuration files are structured by nature. Using a text templating system for generating them expose you to
-malformations (you forgot to close a `(` or a `{` or didn't indent correctly inside a loop, ...), injection attacks,
-and escaping hell. With jsonnet it's impossible to generate malformed files (unless you use string manifestation
-which defeat the purpose of using jsonnet in the first place).
+Configuration files are structured by nature. Using a text templating system ([mustache](https://mustache.github.io/)
+like) for generating them expose you to malformations (you forgot to close a `(` or a `{`, bad indent a loop,
+...), injection attacks, and escaping hell. With jsonnet it's impossible to generate malformed files, unless you
+use string templates, which defeat the purpose of using jsonnet (objects) in the first place.
 
 Jsonnet permits using complex operations for merging, adding, overriding and allowing you to easily and securely
 specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
@@ -76,11 +72,15 @@ Options:
 Each configuration declares one or several jsonnet template files which in turn generate one or several configuration
 files.
 
-Here is a simple `test.json` file declaring only one template, and using all 3 different secrets backends. We use
-4 different secrets engines with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv-v2),
+Here is a simple `test.json` file declaring only one template, and using 3 different
+secrets backends (`vault`, `env` and `file`). We also use 4 different secrets engines
+with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv-v2),
 [pki](https://www.vaultproject.io/docs/secrets/pki), [databases](https://www.vaultproject.io/docs/secrets/databases),
 [transit](https://www.vaultproject.io/docs/secrets/transit)) which require using 2 differents http methods (`GET`
 by default, and `POST`).
+
+Variables are substitued in secrets' keys before beeing processed by rconfd. Here, `${NAMESPACE}` allows you to
+use a role based on the namespace where you have deployed your pod.
 
 ```json
 {
@@ -101,9 +101,10 @@ by default, and `POST`).
 }
 ```
 
-The template `test.jsonnet` is a multi file output jsonnet template which means that the root keys represent the paths
-of the files to be generated, while the values represent the templates. `dir` is used if a key is a relative path,
-`user` and `mode` set the owner and file permissions on successful manifestation.
+The root keys of the config files are jsonnet templates (absolute or relative to `-d` argument). Each template is
+a multi file output jsonnet template, meaning that its root keys represent the paths of the files to be generated
+(absolute or relative to `dir`), while the values represent the files' content. `user` and `mode` set the owner
+and file permissions on successful manifestation.
 
 `secrets` maps secret path to variable name, and are accessible inside jsonnet templates through a
 `secrets` [extVar](https://jsonnet.org/ref/stdlib.html) variable. The path has the following syntax:
@@ -112,12 +113,63 @@ it is the resulting string, after substitutions, that should conform to the afor
 
 There are currently 3 supported back-ends:
 - `vault`: fetch a secret from the vault server using `arg1` as a `role` name for authentication, and `arg2` as the
-   optional http method (`GET` by default). keywords arguments are sent in the body of the request.
-- `env`: fetch the environment variable and parse it as a json if `args` == `js` or keep it as a string if `str`
-- `file`: fetch the content of the file and parse it as a json value if `args` == `js` or keep it as a string if `str`
+   optional http method (`GET` by default). keywords arguments are sent as json dictionary in the body of the request.
+- `env`: fetch the environment variable and parse it as a json if `arg1` == `js` or keep it as a string if `str`
+- `file`: fetch the content of the file and parse it as a json value if `arg1` == `js` or keep it as a string if `str`
 
 The secrets are collected among all templates and all config files (to fetch each secret only once) and the `cmd`
 is executed if any of the config file change after manifestation.
+
+# S6 integration
+
+As rconfd has been made to configure (and actively reconfigure) one or several services configurations files,
+you need at least 2 services in your container. [s6](https://skarnet.org/software/s6/) supervision suite is a
+natural fit for managing multi services containers. It's simple as clever, and extremely lightweight (full suite
+under 900K in alpine). [s6-overlay](https://github.com/just-containers/s6-overlay) can kickstart you in minutes for
+using it inside your containers.
+
+One key component of s6 is [execline](https://skarnet.org/software/execline/) which aim is to replace your interpreter
+(ie. bash) with a no-interpreter. An execline script is in fact one command line where each command consumes its
+own arguments, complete its task and then replaces itself with the remaining arguments (chainloading), leaving
+no trace of its passage after that. The script is parsed only once at startup and no interpreter lies in memory
+during the process, and yet you can do everything a bash can do.
+
+This is the `/etc/services.d/rconfd/run` script I use in my s6-overlay + rconfd based image. In the service
+directory you can put a `/etc/services.d/rconfd/notification-fd` with the content `3` which indicates that you want
+[s6-supervise](https://skarnet.org/software/s6/s6-supervise.html) to open a service readiness file descriptor on
+fd 3 (0: stdin, 1: stdout, 2: stderr).
+
+```sh
+#!/usr/bin/execlineb -P
+with-contenv
+importas -u -D https://vault:8200/v1 VAULT_URL VAULT_URL
+foreground { /usr/bin/rconfd -D -u ${VAULT_URL} -d /etc/rconfd -j /etc/rconfd -r 3 }
+importas -u ? ?
+if { s6-test ${?} = 0 }
+	s6-pause
+```
+
+- `with-contenv` allows to import container enviroment in the script (which can define `VAULT_URL`).
+- `import-as` substitutes variable expressions present in its args (remaining script) and use a reasonable default value for
+  VAULT_URL if undefined.
+- then we launch rconfd in daemon mode, and wait for completion in the foreground
+- if the daemon exists normally (because only static secrets are used and it's useless to stay running in this
+  case), we replace rconfd with the smallest daemon implementation possible
+  ([`s6-pause`](https://skarnet.org/software/s6-portable-utils/s6-pause.html)), which just wait forever without
+  consuming any resources (but still react to restart signals). Otherwise, we exit and rconfd service will just be
+  restarted by s6-supervise.
+
+For other services you then use startup script like this one, to passively wait until rconfd generate all config files
+
+```sh
+#!/usr/bin/execlineb -P
+foreground { s6-svwait -U /var/run/s6/services/rconfd }
+importas -u ? ?
+foreground { s6-echo start myservice }
+s6-setuidgid myservice
+cd /var/lib/myservice
+/usr/bin/myservice
+```
 
 # Example
 
@@ -129,34 +181,38 @@ You should correctly
   inside the back-ends
 - create some secrets
 
-Using the `test.json` file above, we could write the following `test.jsonnet` template to create a `config.json`
-inside the `/etc/test` directory.
+Using the rconfd config file `test.json` above, we could write the following `test.jsonnet` template to create a json
+file: `dump.json` (relative to `/etc/test`) and 3 text files: `/etc/ssl/cert.crt`, `/etc/ssl/cert.key`, and `test.txt`
+(relative to `/etc/test`). `test.txt` file is only generated if the `file.json` indicated in the rconfd config
+file and imported in the `secrets['file']` variable, has a root key `test` with a `true` value.
 
 ```jsonnet
 local secrets = std.extVar("secrets");
 {
-	// we define shortcuts for easy access to the secret extVar
-	// the :: is to tell jsonnet to not consider the key as a file to generate
-	// kv2 secret backend contains data and metadata so go directly to the point
-	mysecret:: secrets['mysecret'],
+	// we define shortcuts for easy access to the secret extVar content
+	// the :: is to hide the corresponding key in the final result, avoiding generating a file with the same name
+	// kv2 secret backend contains data and metadata so go directly to the data
+	mysecret:: secrets['mysecret']['data'],
 	mysecret2:: secrets['mysecret2'],
 	namespace:: secrets['namespace'],
 	file:: secrets['file'],
 	cert:: secrets['cert'],
 
 	// just dump all secrets using json manifestation
-	'config.json': std.manifestJsonEx({
+	'dump.json': std.manifestJsonEx({
 		mysecret: $.mysecret,
+		// remove the hmac prefix
 		mysecret2: std.split($.mysecret2.hmac, ':')[2],
 		namespace: $.namespace,
-		file: $.file
+		file: $.file,
+		cert: $.cert
 	}, '  ')
 
 	// save certificate and key in separate files
-	'cert.crt': $.cert['certificate'],
-	'cert.key': $.cert['private_key'],
+	'/etc/ssl/cert.crt': $.cert['certificate'],
+	'/etc/ssl/cert.key': $.cert['private_key'],
 
 	// conditional file manifestation
-	[if secrets['file']['test'] == 'true' then 'key']: 'val'
+	[if secrets['file']['test'] == 'true' then 'test.txt']: 'hello world!'
 }
 ```
