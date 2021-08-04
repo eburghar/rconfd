@@ -2,7 +2,7 @@
 
 `rconfd` is a lightweight utility for containers, written in async rust, to generate
 config files from [jsonnet templates](https://jsonnet.org/), and keep them in sync
-whith secrets fetched from a [vault server](https://www.vaultproject.io/) with [kubernetes
+with secrets fetched from a [vault server](https://www.vaultproject.io/) using [kubernetes
 authentication](https://www.vaultproject.io/docs/auth/kubernetes). It can use the simple and yet effective
 [startup notification](https://skarnet.org/software/s6/notifywhenup.html) mechanism of the [s6 supervision
 suite](https://skarnet.org/software/s6/) to signal other services that their configuration files have been generated
@@ -12,35 +12,35 @@ and it can launch arbitrary command when configuration change.
 
 There is a lot of alternatives for generating configuration files at runtime under kubernetes with
 various template engines and secrets back-ends ([confd](https://github.com/kelseyhightower/confd),
-[consul-template](https://github.com/hashicorp/consul-template)...) but because it can run a lot of containers
-in the same host, I wanted the lightest and fastest implementation as possible with a minimal surface attack,
-even at the cost of flexibility (few back-ends, one template engine). Rust match C/C++ speed while giving you
-safeness, correctness and easy maintenance with no special efforts.
+[consul-template](https://github.com/hashicorp/consul-template)...) but because such a tool can run in a lot
+of containers inside the same host, I wanted the lightest and fastest implementation as possible with a minimal
+surface attack, even at the cost of some flexibility (few back-ends, one template engine). Rust match C/C++ speed
+while giving you safeness, correctness and easy maintenance with no special efforts.
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
 in the rigid general approach of one executable per container, which forces you to decouple your software stack
 under kubernetes into init containers, inject containers, side car containers, with liveliness and readiness
-tests and blind kill and restart on timeout if conditions are not not met (which is the approach of [vault
-injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)). With several service
-in a container, the orchestration is simple and smarter, it starts faster, and scale without putting unnecessary
-pressure on your orchestration supervisor or container runtime.
+tests and blind kill and restart on timeout if conditions are not not met (which is the approach taken by [vault
+injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)). With several
+services in a container, the orchestration is simple and smarter, it starts faster, and scale without putting
+unnecessary pressure on your orchestration supervisor or container runtime.
 
 `rconfd` is a rewrite of the C++ [cconfd](https://github.com/eburghar/cconfd) utility
 using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jrsonnet
-interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using
-stdc++17 and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too
-hard to understand and maintain. I never managed to allocate resources to add the missing features or fix some
-obvious bugs. In contrast I ported all `cconfd` features in `rconfd` in just 2 days, and now as I consider it
-feature complete, I know it is also faster, smarter, lighter, maintainable, thread and memory safe.
+interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using stdc++17
+and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too hard to
+understand and maintain. I never managed to allocate resources to add the missing features or fix some obvious
+bugs. In contrast I ported all `cconfd` features in `rconfd` in just 2 days, and now as I consider it feature
+complete, I know it is also faster, smarter, lighter, maintainable, thread and memory safe.
 
 # jsonnet ?
 
 Configuration files are structured by nature. Using a text templating system ([mustache](https://mustache.github.io/)
-like) for generating them expose you to malformations (you forgot to close a `(` or a `{`, bad indent in a loop,
-...), injection attacks, and escaping hell. With jsonnet it's impossible to generate malformed files, unless you
-use string templates, which defeat the purpose of using jsonnet (objects) in the first place.
+like) for generating them expose you to malformations (you forgot to close a `(` or a `{`, or introduced a bad indent
+in a loop, ...), injection attacks, and escaping hell. With jsonnet it's impossible to generate malformed files,
+unless you use string templates, which defeat the purpose of using jsonnet (objects) in the first place.
 
-Jsonnet permits using complex operations for merging, adding, overriding and allowing you to easily and securely
+Jsonnet permits using complex operations for merging, adding, overriding and allows you to easily and securely
 specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
 with the `file` and `env` back-ends, you can easily compose your configuration files at startup in a flexible way.
 
@@ -101,13 +101,13 @@ scope the vault role to the namespace where you have deployed your pod.
 }
 ```
 
-The root keys of the config files are jsonnet templates (absolute or relative to `-d` argument). Each template is
+The root keys of the config files are jsonnet templates path (absolute or relative to `-d` argument). Each template is
 a multi file output jsonnet template, meaning that its root keys represent the paths of the files to be generated
 (absolute or relative to `dir`), while the values represent the files' content. `user` and `mode` set the owner
 and file permissions on successful manifestation.
 
-`secrets` maps secret path to variable name, and are accessible inside jsonnet templates through a
-`secrets` [extVar](https://jsonnet.org/ref/stdlib.html) variable. The path has the following syntax:
+`secrets` maps a secret path to a variable name which become accessible inside jsonnet templates through a
+`secrets` [extVar](https://jsonnet.org/ref/stdlib.html) object variable. The path has the following syntax:
 `backend:arg1,arg2,k1=v1,k2=v2:path`, and can contain environment variables expressions `${NAME}`, in which case
 it is the resulting string, after substitutions, that should conform to the aforementioned syntax.
 
@@ -125,7 +125,7 @@ is executed if any of the config file change after manifestation.
 As rconfd has been made to configure (and actively reconfigure) one or several services configurations files,
 you need at least 2 services in your container. [s6](https://skarnet.org/software/s6/) supervision suite is a
 natural fit for managing multi services containers. It's simple as in clever, and extremely lightweight (full suite
-under 900K in alpine). [s6-overlay](https://github.com/just-containers/s6-overlay) can kickstart you in minutes for
+under 900K in alpine). [s6-overlay](https://github.com/just-containers/s6-overlay) can kickstart you for
 using it inside your containers.
 
 One key component of s6 is [execline](https://skarnet.org/software/execline/) which aim is to replace your interpreter
@@ -133,7 +133,7 @@ One key component of s6 is [execline](https://skarnet.org/software/execline/) wh
 own arguments, complete its task and then replaces itself with the remaining arguments (chainloading), leaving
 no trace of its passage after that. The script is parsed only once at startup and no interpreter lies in memory
 during the process, and yet you can do everything a bash can do. It looks like an *impossible mission* script that
-is consuming itself to the end, as only the remaining script stays in memory at each step. No interpreter means
+is consuming itself to the end. Only the remaining script stays in memory at each step. No interpreter means
 fewer security risks (no injection possible with execline), fewer resources allocated, and instant startup.
 
 This is the `/etc/services.d/rconfd/run` script I use in my s6-overlay + rconfd based image. In the service
@@ -153,17 +153,17 @@ if { s6-test ${?} = 0 }
 ```
 
 - [`with-contenv`](https://github.com/just-containers/s6-overlay/blob/master/builder/overlay-rootfs/usr/bin/with-contenv)
-  allows to import container enviroment in the script (which can define `VAULT_URL`).
+  allows to import container enviroment (which can define `VAULT_URL`) in the script context.
 - [`importas`](https://skarnet.org/software/execline/importas.html) substitutes variables expressions present in
   its args (remaining script) using default value (`-D`) if undefined.
-- then we launch rconfd in daemon mode, reading all config files in `/etc/rconfd` directory, using the readiness
+- we then launch rconfd in daemon mode, reading all config files in `/etc/rconfd` directory, using the readiness
   fd 3, and waiting for its completion in the foreground
 - if the daemon exits normally (because only static secrets are used and it's useless to stay running in this
   case), we replace rconfd with the smallest daemon implementation possible
   ([`s6-pause`](https://skarnet.org/software/s6-portable-utils/s6-pause.html)), which just wait forever without
   consuming any resources (but still react to restart signals). Otherwise, rconfd service will just be
   restarted by s6-supervise. It is important that s6 considers the rconfd service always runnning, otherwise dependent
-  services could wait indefinitely for rconfd readiness signal, thus the use of `s6-pause`.
+  services could wait indefinitely for rconfd readiness signal (thus the use of `s6-pause`).
 
 For other services you then use startup script like this one, to passively wait until rconfd generate all config files
 
