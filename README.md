@@ -15,7 +15,7 @@ various template engines and secrets back-ends ([cconfd](https://github.com/kels
 [consul-template](https://github.com/hashicorp/consul-template)...) but because it can run a lot of containers
 in the same host, I wanted the lightest and fastest implementation as possible with a minimal surface attack,
 even at the cost of flexibility (few back-ends, one template engine). Rust match C/C++ speed while giving you
-safetyness, correctness and easy maintenance with no special efforts.
+safeness, correctness and easy maintenance with no special efforts.
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
 in the rigid general approach of one executable per container, which forces you to decouple your software stack
@@ -42,7 +42,7 @@ use string templates, which defeat the purpose of using jsonnet (objects) in the
 
 Jsonnet permits using complex operations for merging, adding, overriding and allowing you to easily and securely
 specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
-with the `file` and `env` back-ends, you can easily compose your configuration files at startup.
+with the `file` and `env` back-ends, you can easily compose your configuration files at startup in a flexible way.
 
 # Usage
 
@@ -80,7 +80,7 @@ with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv
 by default, and `POST`).
 
 Variables are substitued in secrets' keys before beeing processed by rconfd. Here, `${NAMESPACE}` allows you to
-use a role based on the namespace where you have deployed your pod.
+scope the vault role to the namespace where you have deployed your pod.
 
 ```json
 {
@@ -124,7 +124,7 @@ is executed if any of the config file change after manifestation.
 
 As rconfd has been made to configure (and actively reconfigure) one or several services configurations files,
 you need at least 2 services in your container. [s6](https://skarnet.org/software/s6/) supervision suite is a
-natural fit for managing multi services containers. It's simple as clever, and extremely lightweight (full suite
+natural fit for managing multi services containers. It's simple as in clever, and extremely lightweight (full suite
 under 900K in alpine). [s6-overlay](https://github.com/just-containers/s6-overlay) can kickstart you in minutes for
 using it inside your containers.
 
@@ -132,7 +132,9 @@ One key component of s6 is [execline](https://skarnet.org/software/execline/) wh
 (ie. bash) with a no-interpreter. An execline script is in fact one command line where each command consumes its
 own arguments, complete its task and then replaces itself with the remaining arguments (chainloading), leaving
 no trace of its passage after that. The script is parsed only once at startup and no interpreter lies in memory
-during the process, and yet you can do everything a bash can do.
+during the process, and yet you can do everything a bash can do. It looks like an *impossible mission* script that
+is consuming itself to the end, as only the remaining script stays in memory at each step. No interpreter means
+fewer security risks (no injection possible with execline), fewer resources allocated, and instant startup.
 
 This is the `/etc/services.d/rconfd/run` script I use in my s6-overlay + rconfd based image. In the service
 directory you can put a `/etc/services.d/rconfd/notification-fd` with the content `3` which indicates that you want
@@ -149,10 +151,12 @@ if { s6-test ${?} = 0 }
 	s6-pause
 ```
 
-- `with-contenv` allows to import container enviroment in the script (which can define `VAULT_URL`).
-- `import-as` substitutes variable expressions present in its args (remaining script) and use a reasonable default value for
-  VAULT_URL if undefined.
-- then we launch rconfd in daemon mode, and wait for completion in the foreground
+- [`with-contenv`](https://github.com/just-containers/s6-overlay/blob/master/builder/overlay-rootfs/usr/bin/with-contenv)
+  allows to import container enviroment in the script (which can define `VAULT_URL`).
+- [`importas`](https://skarnet.org/software/execline/importas.html) substitutes variable expressions present in
+  its args (remaining script) and use a reasonable default value for `VAULT_URL` if undefined.
+- then we launch rconfd in daemon mode, reading all config files in `/etc/rconfd` directory, using the readiness
+  fd 3, and waiting for its completion in the foreground
 - if the daemon exits normally (because only static secrets are used and it's useless to stay running in this
   case), we replace rconfd with the smallest daemon implementation possible
   ([`s6-pause`](https://skarnet.org/software/s6-portable-utils/s6-pause.html)), which just wait forever without
@@ -172,8 +176,8 @@ if { s6-test ${?} = 0 }
 	/usr/bin/myservice
 ```
 
-In the cmd part of the rconfd config file you can signal (here a simple reload) a given service when configuration
-have changed with something like
+In the `cmd` part of the rconfd config file you can use [`s6-svc`](https://skarnet.org/software/s6/s6-svc.html)
+to signal (here a simple reload) a given service that configuration have changed
 
 ```json
 {
