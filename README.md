@@ -11,7 +11,7 @@ and it can launch arbitrary command when configuration change.
 # Yet another configuration template manager ?
 
 There is a lot of alternatives for generating configuration files at runtime under kubernetes with
-various template engines and secrets back-ends ([cconfd](https://github.com/kelseyhightower/confd),
+various template engines and secrets back-ends ([confd](https://github.com/kelseyhightower/confd),
 [consul-template](https://github.com/hashicorp/consul-template)...) but because it can run a lot of containers
 in the same host, I wanted the lightest and fastest implementation as possible with a minimal surface attack,
 even at the cost of flexibility (few back-ends, one template engine). Rust match C/C++ speed while giving you
@@ -30,7 +30,7 @@ using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jr
 interpreter](https://github.com/CertainLach/jrsonnet). `cconfd`, while working, was a failed attempt using
 stdc++17 and the [google/fruit](https://github.com/google/fruit) dependency injection library. It was way too
 hard to understand and maintain. I never managed to allocate resources to add the missing features or fix some
-obvious bugs. In contrast I ported all `cconfd` features for `rconfd` in just 2 days, and now as I consider it
+obvious bugs. In contrast I ported all `cconfd` features in `rconfd` in just 2 days, and now as I consider it
 feature complete, I know it is also faster, smarter, lighter, maintainable, thread and memory safe.
 
 # jsonnet ?
@@ -138,8 +138,9 @@ fewer security risks (no injection possible with execline), fewer resources allo
 
 This is the `/etc/services.d/rconfd/run` script I use in my s6-overlay + rconfd based image. In the service
 directory you can put a `/etc/services.d/rconfd/notification-fd` with the content `3` which indicates that you want
-[s6-supervise](https://skarnet.org/software/s6/s6-supervise.html) to open a service readiness file descriptor on
-fd 3 (0: stdin, 1: stdout, 2: stderr).
+[s6-supervise](https://skarnet.org/software/s6/s6-supervise.html) to open a service readiness file descriptor
+on fd 3 (0: stdin, 1: stdout, 2: stderr). You can also create a `/etc/services.d/rconfd/timeout-finish` with a
+`11000` value to delay the restart of rconfd service to 11s in case of error (template, vault access, io error, ...)
 
 ```sh
 #!/usr/bin/execlineb -P
@@ -153,15 +154,16 @@ if { s6-test ${?} = 0 }
 
 - [`with-contenv`](https://github.com/just-containers/s6-overlay/blob/master/builder/overlay-rootfs/usr/bin/with-contenv)
   allows to import container enviroment in the script (which can define `VAULT_URL`).
-- [`importas`](https://skarnet.org/software/execline/importas.html) substitutes variable expressions present in
-  its args (remaining script) and use a reasonable default value for `VAULT_URL` if undefined.
+- [`importas`](https://skarnet.org/software/execline/importas.html) substitutes variables expressions present in
+  its args (remaining script) using default value (`-D`) if undefined.
 - then we launch rconfd in daemon mode, reading all config files in `/etc/rconfd` directory, using the readiness
   fd 3, and waiting for its completion in the foreground
 - if the daemon exits normally (because only static secrets are used and it's useless to stay running in this
   case), we replace rconfd with the smallest daemon implementation possible
   ([`s6-pause`](https://skarnet.org/software/s6-portable-utils/s6-pause.html)), which just wait forever without
-  consuming any resources (but still react to restart signals). Otherwise, we exit and rconfd service will just be
-  restarted by s6-supervise.
+  consuming any resources (but still react to restart signals). Otherwise, rconfd service will just be
+  restarted by s6-supervise. It is important that s6 considers the rconfd service always runnning, otherwise dependent
+  services could wait indefinitely for rconfd readiness signal, thus the use of `s6-pause`.
 
 For other services you then use startup script like this one, to passively wait until rconfd generate all config files
 
@@ -230,3 +232,12 @@ local secrets = std.extVar("secrets");
 	[if secrets['file']['test'] == 'true' then 'test.txt']: 'hello world!'
 }
 ```
+
+# FAQ
+
+## Why rconfd is exiting with no error code in daemon mode ?
+
+rconfd in daemon mode can exist with no error code, leaving only the message `Exiting daemon mode: no dynamic
+secrets used`. Without secrets to renew, rconfd considers that it's useless to wait for nothing and delegates
+the task to keep running without doing anything to something else (lighter). It's a feature actually, as explained in
+[s6 Integration](#s6-integration) section above.
