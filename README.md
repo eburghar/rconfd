@@ -79,13 +79,14 @@ with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv
 [transit](https://www.vaultproject.io/docs/secrets/transit)) which require using 2 differents http methods (`GET`
 by default, and `POST`).
 
-Variables are substitued in secrets' keys before beeing processed by rconfd. Here, `${NAMESPACE}` allows you to
-scope the vault role to the namespace where you have deployed your pod.
+Variables are substitued in secrets' keys and `dir` value, before beeing processed by rconfd. Here, `${NAMESPACE}`
+allows you to scope the vault role to the namespace where you have deployed your pod, while `${INSTANCE}` allows you
+to change the final destination of relative manifests at runtime (because you can't use variables in jsonnet keys).
 
 ```json
 {
 	"test.jsonnet": {
-		"dir": "/etc/test",
+		"dir": "/etc/test/${INSTANCE}",
 		"mode": "0644",
 		"user": "test-user",
 		"secrets": {
