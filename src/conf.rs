@@ -69,21 +69,22 @@ type Conf = HashMap<String, TemplateConf>;
 
 #[derive(Debug, Deserialize)]
 pub struct TemplateConf {
-	/// basedir for config files with relative path in jsonnet templat
+	/// basedir for config files with relative path in jsonnet template
+	#[serde(deserialize_with="string_envar")]
 	pub dir: String,
 	/// mode of resulting files
 	pub mode: String,
 	/// owner of resulting files
 	pub user: String,
 	/// secrets to inject in the jsonnet engine as "secrets" extVar
-	#[serde(deserialize_with = "de_secret_map")]
+	#[serde(deserialize_with = "key_envar")]
 	pub secrets: HashMap<String, String>,
 	/// command to spawn if some files have been modified
 	pub cmd: Option<String>,
 }
 
-/// Substiture environement variable in secret path
-pub fn key_envar<'a, D>(deserializer: D) -> Result<String, D::Error>
+/// Substitute environement variables in a string
+pub fn string_envar<'a, D>(deserializer: D) -> Result<String, D::Error>
 where
 	D: Deserializer<'a>,
 {
@@ -98,13 +99,13 @@ where
 }
 
 /// Substitute environement variables in the keys (path) of secrets hashmaps before serializing
-fn de_secret_map<'a, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
+fn key_envar<'a, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
 where
 	D: Deserializer<'a>,
 {
 	// new type to be able to define a specific deserialize_with function to apply upon
 	#[derive(Deserialize, PartialEq, Eq, Hash)]
-	struct Wrapper(#[serde(deserialize_with = "key_envar")] String);
+	struct Wrapper(#[serde(deserialize_with = "string_envar")] String);
 
 	let v = HashMap::<Wrapper, String>::deserialize(deserializer)?;
 	Ok(v.into_iter().map(|(Wrapper(k), v)| (k, v)).collect())

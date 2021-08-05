@@ -14,8 +14,8 @@ There is a lot of alternatives for generating configuration files at runtime und
 various template engines and secrets back-ends ([confd](https://github.com/kelseyhightower/confd),
 [consul-template](https://github.com/hashicorp/consul-template)...) but because such a tool can run in a lot
 of containers inside the same host, I wanted the lightest and fastest implementation as possible with a minimal
-surface attack, even at the cost of some flexibility (few back-ends, one template engine). Rust match C/C++ speed
-while giving you safeness, correctness and easy maintenance with no special efforts.
+surface attack, even at the cost of some flexibility (few back-ends, one template engine). Rust matches C/C++ speed
+an resources consumption while giving you safeness, correctness and easy maintenance with no special efforts.
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
 in the rigid general approach of one executable per container, which forces you to decouple your software stack
