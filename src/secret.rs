@@ -43,7 +43,7 @@ impl Secrets {
 	}
 
 	/// Tell if the secrets map contains at least a leased secret
-	pub fn has_lease(&self) -> bool {
+	pub fn any_leased(&self) -> bool {
 		self.iter()
 			.any(|(_, secret)| secret.as_ref().filter(|s| s.has_lease()).is_some())
 	}
@@ -58,6 +58,8 @@ pub enum Backend {
 	Env,
 	/// Filesystem
 	File,
+	/// Exe
+	Exe
 }
 
 /// lookup list for backend
@@ -65,6 +67,7 @@ const BACKENDS: &'static [(&'static str, Backend)] = &[
 	("vault", Backend::Vault),
 	("env", Backend::Env),
 	("file", Backend::File),
+	("exe", Backend::Exe),
 ];
 
 impl<'a> fmt::Display for Backend {

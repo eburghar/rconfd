@@ -983,7 +983,7 @@ checksum = "941ba9d78d8e2f7ce474c015eea4d9c6d25b6a3327f9832ee29a4de27f91bbb8"
 
 [[package]]
 name = "rconfd"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "argh",

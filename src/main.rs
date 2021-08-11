@@ -40,6 +40,7 @@ use std::{
 	os::unix::fs::PermissionsExt,
 	path::PathBuf,
 	process::Command,
+	time::Duration,
 };
 use vaultk8s::{client::VaultClient, secret::Secret};
 
@@ -58,6 +59,8 @@ async fn main_loop(args: &Args) -> Result<()> {
 	let mut first_run = true;
 	// number of generated templates
 	let mut generated = 0;
+	// current user
+	let current_user = User::current();
 
 	// initialise mpsc channel
 	let (sender, mut receiver) = unbounded::<Message>();
@@ -112,12 +115,12 @@ async fn main_loop(args: &Args) -> Result<()> {
 				if !client.is_logged(&role) {
 					log::debug!("  Login({})", &role);
 					let auth = client.login(&role).await.with_context(|| {
-						format!("failed to login to vault server {}", &args.url)
+						format!("failed to login vault server {}", &args.url)
 					})?;
 					// schedule a relogin login task at 2/3 of the lease_duration time
 					if let Some(renew_delay) = auth.renew_delay() {
 						log::debug!(
-							"  logged in to {} with role {}. Log in again within {:?}",
+							"  logged in {} with role {}. Log in again within {:?}",
 							&client.url,
 							&role,
 							renew_delay
@@ -142,7 +145,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 					.is_none()
 				{
 					log::debug!("  GetSecret({})", &path);
-					// parse the secret (again ? it's cheap and contains only reference from path)
+					// parse the secret again ? (yes it's cheap and contains only reference from path)
 					let secret = SecretPath::try_from(&path)
 						.with_context(|| format!("failed to parse \"{}\"", path))?;
 					let role = secret
@@ -157,7 +160,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 								.get_secret(role, &method, &secret.path, secret.kwargs.as_ref())
 								.await
 								.with_context(|| {
-									format!("failed to get the secret \"{}\"", &secret.path)
+									format!("failed to get the secret \"{}\"", path)
 								})?;
 
 							// schedule the newewal of the secret
@@ -183,7 +186,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 									"js" => {
 										serde_json::from_str(&env::var(&secret.path).unwrap_or("\"\"".to_owned()))
 											.with_context(|| {
-												format!("failed to parse \"{}\" variable content", &secret.path)
+												format!("failed to parse \"{}\" variable content", secret.path)
 											})?
 									},
 									_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args[0]))?
@@ -200,17 +203,80 @@ async fn main_loop(args: &Args) -> Result<()> {
 							let value = match secret.args[0] {
 									"str" => {
 										let mut buffer = String::new();
-										file.read_to_string(&mut buffer).with_context(|| format!("failed to read \"{}\"", &secret.path))?;
+										file.read_to_string(&mut buffer).with_context(|| format!("failed to read \"{}\"", secret.path))?;
 										Value::String(buffer)
 									},
 									"js" => {
 										let reader = BufReader::new(file);
 										serde_json::from_reader(reader)
-											.with_context(|| format!("failed to parse file \"{}\"", &secret.path))?
+											.with_context(|| format!("failed to parse file \"{}\"", secret.path))?
 									},
 									_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args[0]))?
 								};
 							if secrets.replace(&path, Secret::new(value, None)) {
+								confs.generate_templates(&secrets, &path, &sender).await?;
+							}
+						}
+
+						Backend::Exe => {
+							let args: Vec<&str> = secret.path.split_whitespace().collect();
+							// enforce absolute exec path for security reason
+							if !args[0].starts_with("/") {
+								Err(anyhow!(
+									"in \"{}\", command \"{}\" should be absolute and start with /",
+									path,
+									args[0]
+								))?;
+							}
+							// use sudo to drop privilege if uid is 0 before executing
+							let mut cmd = &mut Command::new(if current_user.uid == 0 {
+								"/usr/bin/sudo"
+							} else {
+								args[0]
+							});
+							if current_user.uid == 0 {
+								log::debug!("    executing \"{}\" as nobody", secret.path);
+								cmd = cmd.args(&["-u", "nobody", args[0]]);
+							}
+							if args.len() > 1 {
+								cmd = cmd.args(&args[1..]);
+							}
+							let output = cmd
+								.output()
+								.with_context(|| format!("error executing \"{}\"", secret.path))?;
+							if !output.status.success() {
+								Err(anyhow!(
+									"command \"{}\" failed with code {}:\n{}",
+									secret.path,
+									output.status.code().unwrap_or(1),
+									String::from_utf8_lossy(&output.stderr)
+								))?;
+							}
+							let value = match secret.args[0] {
+								"str" => {
+									Value::String(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+								},
+								"js" => {
+									serde_json::from_str(&env::var(&secret.path).unwrap_or("\"\"".to_owned()))
+										.with_context(|| {
+											format!("failed to parse \"{}\" variable content", secret.path)
+										})?
+								},
+								_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args[0]))?
+							};
+							// secret declared as static (default) have no lease, whereas dynamic are invalid as soon as fetched (0s lease)
+							let dur = match secret.args.get(1) {
+								Some(s) => match *s {
+									"static" => None,
+									"dynamic" => Some(Duration::from_secs(0)),
+									_ => Err(anyhow!(
+										"in \"{}\", \"static\" or \"dynamic\" expected in args, found \"{}\"",
+										path, s
+									))?,
+								},
+								_ => None,
+							};
+							if secrets.replace(&path, Secret::new(value, dur)) {
 								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
@@ -283,6 +349,11 @@ async fn main_loop(args: &Args) -> Result<()> {
 
 					// get user
 					let user = User::new(&conf.user);
+					if let Some(ref user) = user {
+						if &current_user != user && current_user.gid != 0 {
+							log::warn!("user \"{}\" is different than rconfd user which is unprivileged user", conf.user)
+						}
+					}
 
 					let mut changes = false;
 					// generate files from template top keys
@@ -329,14 +400,19 @@ async fn main_loop(args: &Args) -> Result<()> {
 						if let Some(ref cmd_str) = conf.cmd {
 							let args: Vec<&str> = cmd_str.split_whitespace().collect();
 							if args.len() > 0 {
-								let mut cmd = Command::new(&args[0]);
-								if args.len() > 1 {
-									cmd.args(&args[1..]);
-								}
-								log::info!("  files changed. Executing \"{}\"", cmd_str);
-								let res = cmd.output();
-								if res.is_err() {
-									log::error!("Failed to execute \"{}\"", cmd_str);
+								// enforce absolute exec path for security reason
+								if args[0].starts_with("/") {
+									let mut cmd = Command::new(&args[0]);
+									if args.len() > 1 {
+										cmd.args(&args[1..]);
+									}
+									log::info!("  files changed. Executing \"{}\"", cmd_str);
+									let res = cmd.output();
+									if res.is_err() {
+										log::error!("Failed to execute \"{}\"", cmd_str);
+									}
+								} else {
+									log::error!("cmd \"{}\" must be absolute and start with / to be executed", cmd_str);
 								}
 							}
 						}
@@ -353,7 +429,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 						// signal s6 readiness that all config files have been generated
 						s6_ready(args.ready_fd);
 						// quit if not in daemon mode or no dynamic secrets used among templates
-						if !args.daemon || !secrets.has_lease() {
+						if !args.daemon || !secrets.any_leased() {
 							if args.daemon {
 								log::info!("Exiting daemon mode: no dynamic secrets used");
 							}

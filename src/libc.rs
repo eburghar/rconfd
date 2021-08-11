@@ -1,11 +1,12 @@
-use libc::{gid_t, uid_t};
+use libc::{gid_t, uid_t, geteuid, getgid};
 use std::ffi::CString;
 use std::path::Path;
 
 /// Encapsulate libc uid and gid
+#[derive(PartialEq, Eq)]
 pub struct User {
-	uid: uid_t,
-	gid: gid_t,
+	pub uid: uid_t,
+	pub gid: gid_t,
 }
 
 impl User {
@@ -25,7 +26,18 @@ impl User {
 			}
 		}
 		None
-	 }
+	}
+
+	/// Return current user
+	pub fn current() -> Self {
+		// SAFETY: this is standard call to libc
+		unsafe {
+			Self {
+				uid: geteuid(),
+				gid: getgid()
+			}
+		}
+	}
 
 	pub fn chown<T>(&self, path: T)
 	where
