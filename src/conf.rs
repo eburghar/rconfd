@@ -2,7 +2,7 @@ use crate::{message::Message, secret::Secrets, subst::subst_envar};
 
 use anyhow::{Context, Result};
 use async_std::channel::Sender;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de};
 use std::{
 	collections::HashMap,
 	fs::{self, File},
@@ -128,12 +128,7 @@ where
 {
 	let s = String::deserialize(deserializer)?;
 	// try to substiture all variable in path
-	if let Ok(s) = subst_envar(&s) {
-		Ok(s)
-	// return the original string (TODO: show error at deserialization)
-	} else {
-		Ok(s)
-	}
+	Ok(subst_envar(&s).map_err(de::Error::custom)?)
 }
 
 /// Substitute environement variables in the keys (path) of secrets hashmaps before serializing

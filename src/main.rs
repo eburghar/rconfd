@@ -82,6 +82,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 			let secrets_map = &confs.get(&tmpl).unwrap().secrets;
 			if secrets_map.is_empty() {
 				// if no secrets generate template straight away
+				log::debug!("empty GenerateTemplate({})", tmpl);
 				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
 			} else {
 				// otherwise fetch all the secrets defined in the template config
@@ -193,7 +194,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 									},
 									_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args[0]))?
 								};
-							if secrets.replace(&path, Secret::new(value, None)) {
+							if secrets.replace(&path, Secret::new(value, None)) && gen_tmpl {
 								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
@@ -215,7 +216,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 									},
 									_ => Err(anyhow!("malformed secret \"{}\"\n    expected argument \"str\" or \"js\" found \"{}\"", path, secret.args[0]))?
 								};
-							if secrets.replace(&path, Secret::new(value, None)) {
+							if secrets.replace(&path, Secret::new(value, None)) && gen_tmpl {
 								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
@@ -278,7 +279,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 								},
 								_ => None,
 							};
-							if secrets.replace(&path, Secret::new(value, dur)) {
+							if secrets.replace(&path, Secret::new(value, dur)) && gen_tmpl {
 								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
