@@ -47,7 +47,7 @@ with the `file` and `env` back-ends, you can easily compose your configuration f
 # Usage
 
 ```
-rconfd 0.6.0
+rconfd 0.8.0
 
 Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
 
@@ -72,8 +72,8 @@ Options:
 Each configuration declares one or several jsonnet template files which in turn generate one or several configuration
 files.
 
-Here is a simple `test.json` file declaring only one template, and using 3 different
-secrets backends (`vault`, `env` and `file`). We also use 4 different secrets engines
+Here is a simple `test.json` file declaring only one template, and using 4 different
+secrets backends (`vault`, `env`, `file` and `exe`). We also use 4 different secrets engines
 with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv-v2),
 [pki](https://www.vaultproject.io/docs/secrets/pki), [databases](https://www.vaultproject.io/docs/secrets/databases),
 [transit](https://www.vaultproject.io/docs/secrets/transit)) which require using 2 differents http methods (`GET`
@@ -81,7 +81,7 @@ by default, and `POST`).
 
 Variables are substitued in secrets' keys and `dir` value, before beeing processed by rconfd. Here, `${NAMESPACE}`
 allows you to scope the vault role to the namespace where you have deployed your pod, while `${INSTANCE}` allows you
-to change the final destination of relative manifests at runtime (because you can't use variables in jsonnet keys).
+to change the final destination of relative manifests at runtime (you can't use variables in jsonnet keys).
 
 ```json
 {
@@ -95,9 +95,11 @@ to change the final destination of relative manifests at runtime (because you ca
 			"vault:${NAMESPACE}-role,POST,common_name=example.com:pki/issue/example.com": "cert",
 			"vault:${NAMESPACE}-role,POST,input=password:transit/hmac/mysecret": "mysecret2",
 			"env:str:NAMESPACE": "namespace",
-			"file:js:file.json": "file"
+			"file:js:file.json": "file",
+			"exe:str:/usr/bin/nproc --all": "cpu",
+			"exe:str,dynamic:/usr/bin/date +%s": "timestamp"
 		},
-		"cmd": "echo reloading"
+		"cmd": "/usr/bin/echo reloading"
 	}
 }
 ```
@@ -105,18 +107,22 @@ to change the final destination of relative manifests at runtime (because you ca
 The root keys of the config files are jsonnet templates path (absolute or relative to `-d` argument). Each template is
 a multi file output jsonnet template, meaning that its root keys represent the paths of the files to be generated
 (absolute or relative to `dir`), while the values represent the files' content. `user` and `mode` set the owner
-and file permissions on successful manifestation.
+(if rconfd is executed as root) and file permissions on successful manifestation.
 
 `secrets` maps a secret path to a variable name which become accessible inside jsonnet templates through a
 `secrets` [extVar](https://jsonnet.org/ref/stdlib.html) object variable. The path has the following syntax:
 `backend:arg1,arg2,k1=v1,k2=v2:path`, and can contain environment variables expressions `${NAME}`, in which case
 it is the resulting string, after substitutions, that should conform to the aforementioned syntax.
 
-There are currently 3 supported back-ends:
+There are currently 4 supported back-ends:
 - `vault`: fetch a secret from the vault server using `arg1` as a `role` name for authentication, and `arg2` as the
    optional http method (`GET` by default). keywords arguments are sent as json dictionary in the body of the request.
-- `env`: fetch the environment variable and parse it as a json if `arg1` == `js` or keep it as a string if `str`
-- `file`: fetch the content of the file and parse it as a json value if `arg1` == `js` or keep it as a string if `str`
+- `env`: fetch the environment variable and parse it as a json if `arg1` == `js` or keep it as a string if == `str`
+- `file`: fetch the content of the file and parse it as a json value if `arg1` == `js` or keep it as a string if == `str`
+- `exe`: execute the command with arguments given as `path` and parse its trimmed output as a json value if `arg1` == `js`
+   or keep it as a string if == `str`. if `arg2` == `dynamic`, the command is executed at each template manifestation,
+   otherwise if omited or == `static` it is executed only once at startup. The command is executed as rconfd user or
+   `nobody` (via sudo) if rconfd is executed as root.
 
 The secrets are collected among all templates and all config files (to fetch each secret only once) and the `cmd`
 is executed if any of the config file change after manifestation.
@@ -210,19 +216,23 @@ local secrets = std.extVar("secrets");
 	// the :: is to hide the corresponding key in the final result, avoiding generating a file with the same name
 	// kv2 secret backend contains data and metadata so go directly to the data
 	mysecret:: secrets['mysecret']['data'],
-	mysecret2:: secrets['mysecret2'],
+	// remove the hmac prefix
+	mysecret2:: std.split(secrets['mysecret2'].hmac, ':')[2],
 	namespace:: secrets['namespace'],
 	file:: secrets['file'],
 	cert:: secrets['cert'],
+	cpu:: secrets['cpu'],
+	timestamp:: secrets['timestamp'],
 
 	// just dump all secrets using json manifestation
 	'dump.json': std.manifestJsonEx({
 		mysecret: $.mysecret,
-		// remove the hmac prefix
-		mysecret2: std.split($.mysecret2.hmac, ':')[2],
+		mysecret2: $.mysecret2, 
 		namespace: $.namespace,
 		file: $.file,
-		cert: $.cert
+		cert: $.cert,
+		cpu: $.cpu,
+		timestamp: $.timestamp
 	}, '  ')
 
 	// save certificate and key in separate files

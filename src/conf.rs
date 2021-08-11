@@ -1,8 +1,4 @@
-use crate::{
-	message::Message,
-	secret::Secrets,
-	subst::subst_envar
-};
+use crate::{message::Message, secret::Secrets, subst::subst_envar};
 
 use anyhow::{Context, Result};
 use async_std::channel::Sender;
@@ -34,7 +30,7 @@ impl TemplateConfs {
 		Self(HashMap::<String, TemplateConf>::new())
 	}
 
-	/// generate all templates if conditions are met
+	/// (re)generate templates that have a declared secret at path
 	pub async fn generate_templates(
 		&self,
 		secrets: &Secrets,
@@ -56,6 +52,19 @@ impl TemplateConfs {
 					})
 					.all(|o| o.is_some())
 			{
+				// fetch ephemeral secrets before generating the template (ephemeral secrets are always invalid)
+				for (path, secret) in secrets.iter().filter_map(|(path, val)| {
+					if conf.secrets.get(path).is_some() {
+						Some((path, val))
+					} else {
+						None
+					}
+				}) {
+					// shouldn't have a none here
+					if secret.is_none() || !secret.as_ref().unwrap().is_valid() {
+						sender.send(Message::GetSecret(path.to_owned())).await?;
+					}
+				}
 				// ask the broker to regenerate the template
 				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
 			}
@@ -70,7 +79,7 @@ type Conf = HashMap<String, TemplateConf>;
 #[derive(Debug, Deserialize)]
 pub struct TemplateConf {
 	/// basedir for config files with relative path in jsonnet template
-	#[serde(deserialize_with="string_envar")]
+	#[serde(deserialize_with = "string_envar")]
 	pub dir: String,
 	/// mode of resulting files
 	pub mode: String,
