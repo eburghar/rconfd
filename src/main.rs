@@ -433,7 +433,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 						// quit if not in daemon mode or no dynamic secrets used among templates
 						if !args.daemon || !secrets.any_leased() {
 							if args.daemon {
-								log::info!("Exiting daemon mode: no dynamic secrets used");
+								log::info!("Exiting daemon mode: no leased secrets used");
 							}
 							break;
 						}

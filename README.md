@@ -47,7 +47,7 @@ with the `file` and `env` back-ends, you can easily compose your configuration f
 # Usage
 
 ```
-rconfd 0.8.0
+rconfd 0.8.1
 
 Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
 
@@ -111,21 +111,59 @@ a multi file output jsonnet template, meaning that its root keys represent the p
 
 `secrets` maps a secret path to a variable name which become accessible inside jsonnet templates through a
 `secrets` [extVar](https://jsonnet.org/ref/stdlib.html) object variable. The path has the following syntax:
-`backend:arg1,arg2,k1=v1,k2=v2:path`, and can contain environment variables expressions `${NAME}`, in which case
+`backend:args:path`, and can contain environment variables expressions `${NAME}`, in which case
 it is the resulting string, after substitutions, that should conform to the aforementioned syntax.
 
-There are currently 4 supported back-ends:
-- `vault`: fetch a secret from the vault server using `arg1` as a `role` name for authentication, and `arg2` as the
-   optional http method (`GET` by default). keywords arguments are sent as json dictionary in the body of the request.
-- `env`: fetch the environment variable and parse it as a json if `arg1` == `js` or keep it as a string if == `str`
-- `file`: fetch the content of the file and parse it as a json value if `arg1` == `js` or keep it as a string if == `str`
-- `exe`: execute the command with arguments given as `path` and parse its trimmed output as a json value if `arg1` == `js`
-   or keep it as a string if == `str`. if `arg2` == `dynamic`, the command is executed at each template manifestation,
-   otherwise if omited or == `static` it is executed only once at startup. The command is executed as rconfd user or
-   `nobody` (via sudo) if rconfd is executed as root.
+# Backends
 
-The secrets are collected among all templates and all config files (to fetch each secret only once) and the `cmd`
-is executed if any of the config file change after manifestation.
+There are currently 4 supported back-ends. The secrets are collected among all templates and all config files
+(to fetch each secret only once) and the `cmd` is executed if any of the config file change after manifestation.
+
+## Vault
+
+`vault` backend is used to fetch a secret from the vault server. The general syntax is
+
+```
+vault:role[,GET|PUT|POST|LIST][,key=val]*:path
+```
+
+- `role` is the role name used for vault authentication,
+-  the optional http method defaults to `GET`
+-  the optional keywords arguments are sent as json dictionary in the body of the request.
+
+## Env
+
+`env` backend is used to get a value from an environment variable. The general syntax is
+
+```
+env:str|js:name
+```
+
+the value is parsed as json if `js` or kept as is if `str`
+
+## File
+
+`file` backend is used to fetch a secret from the content of the file. The general syntax is
+
+```
+file:str|js:name
+```
+
+the value is parsed as json if `js` or kept as is if `str`
+
+## Exe
+
+`exe` backend is used to generate a secret from a command. The general syntax is
+
+```
+exe:str|js[,dynamic|static]:cmd args
+```
+
+- `cmd` must be absolute and start with `/`. It is executed with rconfd user or `nobody` (via sudo) if root,
+- the trimmed output of `cmd` is parsed as json if `js` or kept as is if `str`
+- if `dynamic`, the command is executed at each template manifestation, otherwise if omited or `static` it is
+  executed only once at startup.
+
 
 # S6 integration
 
@@ -228,7 +266,7 @@ local secrets = std.extVar("secrets");
 	// just dump all secrets using json manifestation
 	'dump.json': std.manifestJsonEx({
 		mysecret: $.mysecret,
-		mysecret2: $.mysecret2, 
+		mysecret2: $.mysecret2,
 		namespace: $.namespace,
 		file: $.file,
 		cert: $.cert,
@@ -249,7 +287,7 @@ local secrets = std.extVar("secrets");
 
 ## Why rconfd is exiting with no error code in daemon mode ?
 
-rconfd in daemon mode can exist with no error code, leaving only the message `Exiting daemon mode: no dynamic
+rconfd in daemon mode can exit with no error code, leaving only the message `Exiting daemon mode: no leased
 secrets used`. Without secrets to renew, rconfd considers that it's useless to wait for nothing and delegates
 the task to keep running without doing anything to something else (lighter). It's a feature actually, as explained in
 [s6 Integration](#s6-integration) section above.
