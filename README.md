@@ -184,8 +184,7 @@ fewer security risks (no injection possible with execline), fewer resources allo
 This is the `/etc/services.d/rconfd/run` script I use in my s6-overlay + rconfd based image. In the service
 directory you can put a `/etc/services.d/rconfd/notification-fd` with the content `3` which indicates that you want
 [s6-supervise](https://skarnet.org/software/s6/s6-supervise.html) to open a service readiness file descriptor
-on fd 3 (0: stdin, 1: stdout, 2: stderr). You can also create a `/etc/services.d/rconfd/timeout-finish` with a
-`11000` value to delay the restart of rconfd service to 11s in case of error (template, vault access, io error, ...)
+on fd 3 (0: stdin, 1: stdout, 2: stderr).
 
 ```sh
 #!/usr/bin/execlineb -P
@@ -203,7 +202,7 @@ if { s6-test ${?} = 0 }
   its args (remaining script) using default value (`-D`) if undefined.
 - we then launch rconfd in daemon mode, reading all config files in `/etc/rconfd` directory, using the readiness
   fd 3, and waiting for its completion in the foreground
-- if the daemon exits normally (because only static secrets are used and it's useless to stay running in this
+- if the daemon exits normally (because no leased secrets are used and it's useless to stay running in this
   case), we replace rconfd with the smallest daemon implementation possible
   ([`s6-pause`](https://skarnet.org/software/s6-portable-utils/s6-pause.html)), which just wait forever without
   consuming any resources (but still react to restart signals). Otherwise, rconfd service will just be

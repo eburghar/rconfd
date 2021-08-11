@@ -102,7 +102,7 @@ fn kwarg(input: &str) -> IResult<Arg> {
 }
 
 // parse a simple argument
-/// a token is a key, a variable or a literal
+/// a token is a literal or a variable
 fn arg(input: &str) -> IResult<Arg> {
 	map(literal, Arg::Arg)(input)
 }
