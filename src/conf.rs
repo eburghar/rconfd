@@ -52,7 +52,7 @@ impl TemplateConfs {
 					})
 					.all(|o| o.is_some())
 			{
-				// fetch ephemeral secrets before generating the template (ephemeral secrets are always invalid)
+				// fetch dynamic (exe) secrets before generating the template (dynamic secrets are always invalid)
 				for (path, secret) in secrets.iter().filter_map(|(path, val)| {
 					if conf.secrets.get(path).is_some() {
 						Some((path, val))
@@ -60,13 +60,42 @@ impl TemplateConfs {
 						None
 					}
 				}) {
-					// shouldn't have a none here
+					// fetch the secret without triggering template manifestation once again
 					if secret.is_none() || !secret.as_ref().unwrap().is_valid() {
-						sender.send(Message::GetSecret(path.to_owned())).await?;
+						sender
+							.send(Message::GetSecret(path.to_owned(), false))
+							.await?;
 					}
 				}
 				// ask the broker to regenerate the template
 				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
+			}
+		}
+		Ok(())
+	}
+
+	/// (re)generate all templates that have all secrets defined
+	pub async fn generate_all_templates(
+		&self,
+		secrets: &Secrets,
+		sender: &Sender<Message>,
+	) -> Result<()> {
+		for (tmpl, conf) in self.iter() {
+			if conf
+				.secrets
+				.iter()
+				.filter_map(|(path, _)| {
+					if secrets.get(path).is_some() {
+						Some(true)
+					} else {
+						Some(false)
+					}
+				})
+				.all(|o| o)
+			{
+				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
+			} else {
+				log::warn!("skipping template \"{}\" due to undefined secrets", tmpl);
 			}
 		}
 		Ok(())

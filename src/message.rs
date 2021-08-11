@@ -6,8 +6,8 @@ use anyhow::Result;
 pub enum Message {
 	/// log in and re log in (role)
 	Login(String),
-	// get/refresh a secret (path)
-	GetSecret(String),
+	// get/refresh a secret (path) and trigger generate template or not
+	GetSecret(String, bool),
 	// generate template (config name)
 	GenerateTemplate(String),
 }

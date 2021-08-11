@@ -99,13 +99,15 @@ async fn main_loop(args: &Args) -> Result<()> {
 						}
 						// intialize secret to None
 						secrets.insert(path.clone(), None);
-						// ask the broker to get the secret initial value
-						sender.send(Message::GetSecret(path.to_owned())).await?
+						// ask the broker to get the secret initial value without triggering manifestation
+						sender.send(Message::GetSecret(path.to_owned(), false)).await?
 					}
 				}
 			}
 		}
 	}
+	// trigger manifestation now we asked the broker to fetch all secrets
+	confs.generate_all_templates(&secrets, &sender).await?;
 
 	// actor loop
 	while let Some(msg) = receiver.next().await {
@@ -133,7 +135,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 				}
 			}
 
-			Message::GetSecret(path) => {
+			Message::GetSecret(path, gen_tmpl) => {
 				// get the secret if not already fetched or if it's not valid or it it needs to be renewed
 				if secrets
 					.get(&path)
@@ -144,7 +146,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 					})
 					.is_none()
 				{
-					log::debug!("  GetSecret({})", &path);
+					log::debug!("  GetSecret({}, {})", &path, gen_tmpl);
 					// parse the secret again ? (yes it's cheap and contains only reference from path)
 					let secret = SecretPath::try_from(&path)
 						.with_context(|| format!("failed to parse \"{}\"", path))?;
@@ -163,17 +165,17 @@ async fn main_loop(args: &Args) -> Result<()> {
 									format!("failed to get the secret \"{}\"", path)
 								})?;
 
-							// schedule the newewal of the secret
+							// schedule the newewal of the secret which can trigger template generation
 							if let Some(renew_delay) = secret.renew_delay() {
 								log::debug!("  Renew secret within {:?}", renew_delay);
 								delay_task(
-									send_message(sender.clone(), Message::GetSecret(path.clone())),
+									send_message(sender.clone(), Message::GetSecret(path.clone(), true)),
 									renew_delay,
 								);
 							}
 
 							// replace secret value an regenerate template if necessary
-							if secrets.replace(&path, secret) {
+							if secrets.replace(&path, secret) && gen_tmpl {
 								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}

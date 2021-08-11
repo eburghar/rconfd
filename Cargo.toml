@@ -1,6 +1,6 @@
 [package]
 name = "rconfd"
-version = "0.8.0"
+version = "0.8.1"
 description = """Generate config files from jsonnet templates and keep them in sync with secrets fetched from a
 vault server with kubernetes authentication."""
 authors = ["Éric BURGHARD <eric@itsufficient.me>"]

@@ -221,7 +221,8 @@ local secrets = std.extVar("secrets");
 	namespace:: secrets['namespace'],
 	file:: secrets['file'],
 	cert:: secrets['cert'],
-	cpu:: secrets['cpu'],
+	// turn cpu into an int for calculation
+	cpu:: std.parseInt(secrets['cpu']),
 	timestamp:: secrets['timestamp'],
 
 	// just dump all secrets using json manifestation
