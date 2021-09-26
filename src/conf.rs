@@ -2,7 +2,7 @@ use crate::{message::Message, secret::Secrets, subst::subst_envar};
 
 use anyhow::{Context, Result};
 use async_std::channel::Sender;
-use serde::{Deserialize, Deserializer, de};
+use serde::{de, Deserialize, Deserializer};
 use std::{
 	collections::HashMap,
 	fs::{self, File},
@@ -84,13 +84,7 @@ impl TemplateConfs {
 			if conf
 				.secrets
 				.iter()
-				.filter_map(|(path, _)| {
-					if secrets.get(path).is_some() {
-						Some(true)
-					} else {
-						Some(false)
-					}
-				})
+				.filter_map(|(path, _)| Some(secrets.get(path).is_some()))
 				.all(|o| o)
 			{
 				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;

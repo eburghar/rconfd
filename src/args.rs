@@ -6,18 +6,26 @@ use std::path::Path;
 #[derive(FromArgs)]
 pub struct Args {
 	/// directory containing the rconfd config files
-	#[argh(option, short = 'd')]
+	#[argh(option, short = 'd', default = "\"/etc/rconfd\".to_owned()")]
 	pub dir: String,
 
 	/// the vault url (https://localhost:8200)
-	#[argh(option, short = 'u', default = "\"https://localhost:8200/v1\".to_owned()")]
+	#[argh(
+		option,
+		short = 'u',
+		default = "\"https://localhost:8200/v1\".to_owned()"
+	)]
 	pub url: String,
+
+	/// the login path (/auth/kubernetes/login)
+	#[argh(option, short = 'l', default = "\"/auth/kubernetes/login\".to_owned()")]
+	pub login_path: String,
 
 	/// , separated list of aditional path for jsonnet libraries
 	#[argh(option, short = 'j')]
 	pub jpath: Option<String>,
 
-	/// path of the service account certificate	(/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+	/// path of vault CA certificate (/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
 	#[argh(
 		option,
 		short = 'c',
@@ -25,7 +33,11 @@ pub struct Args {
 	)]
 	pub cacert: String,
 
-	/// path of the kubernetes token (/var/run/secrets/kubernetes.io/serviceaccount/token)
+	/// name of an environment variable containing the JWT token (take precedence over -t)
+	#[argh(option, short = 'T')]
+	pub token_var: Option<String>,
+
+	/// path of the JWT token (/var/run/secrets/kubernetes.io/serviceaccount/token)
 	#[argh(
 		option,
 		short = 't',
@@ -41,7 +53,7 @@ pub struct Args {
 	#[argh(option, short = 'r')]
 	pub ready_fd: Option<i32>,
 
-	/// daemon mode (no detach)
+	/// daemon mode (don't detach)
 	#[argh(switch, short = 'D')]
 	pub daemon: bool,
 }

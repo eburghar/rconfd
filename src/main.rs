@@ -45,10 +45,21 @@ use std::{
 use vaultk8s::{client::VaultClient, secret::Secret};
 
 async fn main_loop(args: &Args) -> Result<()> {
-	// Mutable variables defining the state inside the main loop
+	// variables defining the state inside the main loop
+	// get the jwt token for environment variable or a file
+	let jwt = if let Some(var) = &args.token_var {
+		env::var(var)
+			.with_context(|| format!("unable to get jwt token from environment variable {}", var))?
+	} else {
+		let mut jwt = String::new();
+		File::open(&args.token)
+			.map_err(|e| anyhow!("error opening {}: {}", &args.token, e))?
+			.read_to_string(&mut jwt)
+			.map_err(|e| anyhow!("error reading {}: {}", &args.token, e))?;
+		jwt
+	};
 	// initialize a vault client
-	let mut client =
-		async_std::task::block_on(VaultClient::new(&args.url, &args.token, &args.cacert))?;
+	let mut client = VaultClient::new(&args.url, &args.login_path, &jwt, Some(&args.cacert))?;
 	// map secret path to secret value
 	let mut secrets = Secrets::new();
 	// map template name to template conf
@@ -101,7 +112,9 @@ async fn main_loop(args: &Args) -> Result<()> {
 						// intialize secret to None
 						secrets.insert(path.clone(), None);
 						// ask the broker to get the secret initial value without triggering manifestation
-						sender.send(Message::GetSecret(path.to_owned(), false)).await?
+						sender
+							.send(Message::GetSecret(path.to_owned(), false))
+							.await?
 					}
 				}
 			}
@@ -117,9 +130,10 @@ async fn main_loop(args: &Args) -> Result<()> {
 				// log in if not already logged in with that role
 				if !client.is_logged(&role) {
 					log::debug!("  Login({})", &role);
-					let auth = client.login(&role).await.with_context(|| {
-						format!("failed to login vault server {}", &args.url)
-					})?;
+					let auth = client
+						.login_async(&role)
+						.await
+						.with_context(|| format!("failed to login vault server {}", &args.url))?;
 					// schedule a relogin login task at 2/3 of the lease_duration time
 					if let Some(renew_delay) = auth.renew_delay() {
 						log::debug!(
@@ -160,7 +174,12 @@ async fn main_loop(args: &Args) -> Result<()> {
 						Backend::Vault => {
 							// fetch the secret
 							let secret = client
-								.get_secret(role, &method, &secret.path, secret.kwargs.as_ref())
+								.get_secret_async(
+									role,
+									&method,
+									&secret.path,
+									secret.kwargs.as_ref(),
+								)
 								.await
 								.with_context(|| {
 									format!("failed to get the secret \"{}\"", path)
@@ -170,7 +189,10 @@ async fn main_loop(args: &Args) -> Result<()> {
 							if let Some(renew_delay) = secret.renew_delay() {
 								log::debug!("  Renew secret within {:?}", renew_delay);
 								delay_task(
-									send_message(sender.clone(), Message::GetSecret(path.clone(), true)),
+									send_message(
+										sender.clone(),
+										Message::GetSecret(path.clone(), true),
+									),
 									renew_delay,
 								);
 							}

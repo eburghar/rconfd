@@ -5,7 +5,7 @@ use crate::{
 
 use std::convert::TryFrom;
 
-/// Simple secret path parser
+/// Simple secret path parser: backend:arg1[,args][,key1=val1]:path
 impl<'a> TryFrom<&'a String> for SecretPath<'a> {
 	type Error = Error;
 
