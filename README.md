@@ -27,9 +27,9 @@ of containers inside the same host, I wanted the lightest and fastest implementa
 surface attack, even at the cost of some flexibility (few back-ends, one template engine). Having this tool written
 in Rust gives you safeness, correctness and easy maintenance with no special efforts while matching C speed.
 
-For CI/CD, people traditionally use tools that expose secrets to enviroment variables like
-[envconsul](https://github.com/hashicorp/envconsul)). [envlt](https://github.com/eburghar/envlt.git) does just that
-and share some code with `rconfd`, but doesn't embed a jsonnet interpreter. Because secrets can be structured and
+For CI/CD, people traditionally use tools that expose secrets to enviroment variables (like
+[envconsul](https://github.com/hashicorp/envconsul)). [`envlt`](https://github.com/eburghar/envlt.git) does just that
+and share some code with `rconfd` without embeding a jsonnet interpreter. Because secrets can be structured and
 jsonnet allow to destructure them without the need of external tools, `rconfd` can be preferable for complex CI/CD
 cases too.
 
@@ -258,22 +258,23 @@ to signal (here a simple reload) a given service that configuration have changed
 
 ## Configuring vault
 
-activate vault jwt authentication
+Activate vault jwt authentication
 
 ```sh
 vault write auth/jwt/config jwks_url="https://gitlab.com/-/jwks" bound_issuer="gitlab.com"
 ```
 
-create a policy for accessing the secrets
+Create a policy for accessing the secrets
 
 ```sh
 vault policy write mypolicy - <<EOF
 path "kv/data/secrets/*" {
   capabilities = [ "read" ]
 }
-EOF```
+EOF
+```
 
-create a role. Here You can only login with that role if the token is coming from a group and the
+Create a role. Here You can only login with that role if the token is coming from a group and the
 build is on a protected tag.
 
 ```sh
@@ -289,6 +290,7 @@ vault write auth/jwt/role/myrole - <<EOF
     "ref_type": "tag"
   }
 }
+```
 
 ## Configuring Gitlab CI/CD
 
