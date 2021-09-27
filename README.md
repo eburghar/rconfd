@@ -3,12 +3,12 @@
 `rconfd` is a lightweight utility for containers and CI/CD, written in async rust, to generate config files
 from [jsonnet templates](https://jsonnet.org/), and eventually keep them in sync with secrets fetched from a
 [vault server](https://www.vaultproject.io/) using a JWT token to authenticate with. Depending on the context,
-you can use [JWT/OIDC Auth Method](https://www.vaultproject.io/docs/auth/jwt) for CI/CD and [Kubernetes Auth
+you can use [JWT/OIDC Auth Method](https://www.vaultproject.io/docs/auth/jwt) for CI/CD or [Kubernetes Auth
 Method](https://www.vaultproject.io/docs/auth/kubernetes) for service inside containers.
 
 It can use the simple and yet effective [startup notification](https://skarnet.org/software/s6/notifywhenup.html)
 mechanism of the [s6 supervision suite](https://skarnet.org/software/s6/) to signal other services that their
-configuration files have been generated and it can launch arbitrary command when configuration change.
+configuration files have been generated and it can launch arbitrary command when ready or configuration changed.
 
 `rconfd` is a rewrite of the C++ [cconfd](https://github.com/eburghar/cconfd) utility
 using the [blazing fast](https://github.com/CertainLach/jrsonnet#Benchmarks) [jrsonnet
@@ -27,26 +27,11 @@ of containers inside the same host, I wanted the lightest and fastest implementa
 surface attack, even at the cost of some flexibility (few back-ends, one template engine). Having this tool written
 in Rust gives you safeness, correctness and easy maintenance with no special efforts while matching C speed.
 
-For CI/CD, people traditionally expose secrets to enviroment variables like
-[envconsul](https://github.com/hashicorp/envconsul)). [envlt](https://github.com/eburghar/envlt.git) works the same
-way and share some code with `rconfd`, but because secrets can be structured and jsonnet allow to destructure them
-without needing external tools, `rconfd` can be preferable for complex CI/CD cases too.
-
-# Process supervisor inside containers ?
-
-If you have short-lived secrets tied to a service running in a container, you need to run rconfd and your service
-concurently to be able to restart (or reload) the service when secrets change or are renewed.
-
-Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
-in the rigid general approach of one executable per container, which forces you to decouple your software stack
-under kubernetes into pods, init containers, inject containers, side car containers, with liveliness and readiness
-tests and blind kill and restart on timeout if conditions are not not met (which is the approach taken by [vault
-injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)).
-
-Using a container just for rconfd just add complexity with no direct advantages. It requires you to make a separate
-image and share volumes, and yet, we still don't have an easy way to restart the other containers in the pod
-when configuration change. With several services in the same container, the orchestration is simple and smarter,
-it starts faster, and scale without putting unnecessary pressure on your orchestration supervisor or container runtime.
+For CI/CD, people traditionally use tools that expose secrets to enviroment variables like
+[envconsul](https://github.com/hashicorp/envconsul)). [envlt](https://github.com/eburghar/envlt.git) does just that
+and share some code with `rconfd`, but doesn't embed a jsonnet interpreter. Because secrets can be structured and
+jsonnet allow to destructure them without the need of external tools, `rconfd` can be preferable for complex CI/CD
+cases too.
 
 # jsonnet ?
 
@@ -59,6 +44,22 @@ Jsonnet permits using complex operations for merging, adding, overriding and all
 specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
 with the `file` and `env` back-ends, you can easily compose your configuration files at startup in a flexible way.
 
+# Process supervisor inside containers ?
+
+If you have short-lived secrets tied to a service running in a container, you can run rconfd (not in daemon mode)
+before your service, expect your service to fail after a while (ex: database credentials expired) and trust
+kubernetes to restart your pod quickly with the new configuration.
+
+Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
+in the rigid general approach of one executable per container, which forces you to decouple your software stack
+under kubernetes into pods, init containers, inject containers, side car containers, with liveliness and readiness
+tests and blind kill and restart on timeout if conditions are not not met (which is the approach taken by [vault
+injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)).
+
+With several services and `rconfd` in the same container supervised by s6, everything stays coherent and tied
+together. The orchestration is simple and smarter, it starts faster, and scale without putting unnecessary pressure
+on supervisor or container runtime.
+
 # Usage
 
 ```
@@ -70,7 +71,7 @@ Generate files from jsonnet templates and eventually keep them in sync with secr
 
 Options:
   -d, --dir         directory containing the rconfd config files (/etc/rconfd)
-  -u, --url         the vault url (https://localhost:8200)
+  -u, --url         the vault url ($VAULT_URL or https://localhost:8200/v1)
   -l, --login-path  the login path (/auth/kubernetes/login)
   -j, --jpath       , separated list of aditional path for jsonnet libraries
   -c, --cacert      path of vault CA certificate
@@ -116,7 +117,10 @@ to change the final destination of relative manifests at runtime (you can't use 
 			"exe:str:/usr/bin/nproc --all": "cpu",
 			"exe:str,dynamic:/usr/bin/date +%s": "timestamp"
 		},
-		"cmd": "/usr/bin/echo reloading"
+		"hooks": {
+			"modified": "/usr/bin/echo reloading",
+			"ready": "/usr/bin/echo all files generated"
+		}
 	}
 }
 ```
@@ -133,8 +137,8 @@ it is the resulting string, after substitutions, that should conform to the afor
 
 # Backends
 
-There are currently 4 supported back-ends. The secrets are collected among all templates and all config files
-(to fetch each secret only once) and the `cmd` is executed if any of the config file change after manifestation.
+There are currently 4 supported back-ends. The secrets are collected among all templates and all config files (to
+fetch each secret only once) and the `hooks.modified` is executed if any of the config file change after manifestation.
 
 ## Vault
 
@@ -239,12 +243,14 @@ if { s6-test ${?} = 0 }
 	/usr/bin/myservice
 ```
 
-In the `cmd` part of the rconfd config file you can use [`s6-svc`](https://skarnet.org/software/s6/s6-svc.html)
+In the `hooks.modified` part of the rconfd config file you can use [`s6-svc`](https://skarnet.org/software/s6/s6-svc.html)
 to signal (here a simple reload) a given service that configuration have changed
 
 ```json
 {
-        "cmd": "/bin/s6-svc -h /var/run/s6/services/myservice"
+		"hooks": {
+			"modified": "/bin/s6-svc -h /var/run/s6/services/myservice"
+		}
 }
 ```
 
@@ -267,7 +273,8 @@ path "kv/data/secrets/*" {
 }
 EOF```
 
-create a role
+create a role. Here You can only login with that role if the token is coming from a group and the
+build is on a protected tag.
 
 ```sh
 vault write auth/jwt/role/myrole - <<EOF
@@ -295,13 +302,13 @@ Here is an example `.gitlab-ci.yml'
 image: mybuilder
 
 before_script:
-  # generate all needed configuration files for build.sh
-  - rconfd -T CI_JOB_JWT -l /auth/jwt/login
+  # generate all needed configuration files for Makefile
+  - rconfd -T $CI_JOB_JWT -l /auth/jwt/login
 
 build:
   stage: build
   script:
-  # make use configuration files containing secrets generated by rconfd
+  # The Makefile use files containing secrets generated by rconfd
   - make
 ```
 

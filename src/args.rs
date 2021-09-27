@@ -1,4 +1,5 @@
 use argh::{FromArgs, TopLevelCommand};
+use std::env;
 use std::path::Path;
 
 /// Generate files from jsonnet templates and eventually keep them in sync with secrets fetched from a
@@ -9,11 +10,11 @@ pub struct Args {
 	#[argh(option, short = 'd', default = "\"/etc/rconfd\".to_owned()")]
 	pub dir: String,
 
-	/// the vault url (https://localhost:8200)
+	/// the vault url ($VAULT_URL or https://localhost:8200/v1)
 	#[argh(
 		option,
 		short = 'u',
-		default = "\"https://localhost:8200/v1\".to_owned()"
+		default = "default_url()"
 	)]
 	pub url: String,
 
@@ -58,6 +59,15 @@ pub struct Args {
 	pub daemon: bool,
 }
 
+/// returns the default vault url if not defined on command line argument
+/// VAULT_URL or localhost if undefined
+fn default_url() -> String {
+	env::var("VAULT_URL")
+		.ok()
+		.or_else(|| Some("https://localhost:8200/v1".to_owned()))
+		.unwrap()
+}
+
 fn cmd<'a>(default: &'a String, path: &'a String) -> &'a str {
 	Path::new(path)
 		.file_name()
@@ -66,9 +76,9 @@ fn cmd<'a>(default: &'a String, path: &'a String) -> &'a str {
 		.unwrap_or(default.as_str())
 }
 
-/// copy of argh::from_env to insert command name and version
+/// copy of argh::from_env to insert command name and version in help text
 pub fn from_env<T: TopLevelCommand>() -> T {
-	const NAME: &'static str = env!("CARGO_PKG_NAME");
+	const NAME: &'static str = env!("CARGO_BIN_NAME");
 	const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 	let strings: Vec<String> = std::env::args().collect();
 	let cmd = cmd(&strings[0], &strings[0]);

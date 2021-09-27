@@ -16,7 +16,7 @@ mod task;
 use crate::{
 	args::Args,
 	checksum::Checksums,
-	conf::{config_files, parse_config, TemplateConfs},
+	conf::{config_files, parse_config, TemplateConfs, HookType},
 	libc::User,
 	message::{send_message, Message},
 	s6::s6_ready,
@@ -419,27 +419,9 @@ async fn main_loop(args: &Args) -> Result<()> {
 						})?;
 					}
 
-					// if checksums changed and not on first run, then launch cmd if defined
+					// if checksums changed and not on first run, then trigger modified hook
 					if changes && !first_run {
-						if let Some(ref cmd_str) = conf.cmd {
-							let args: Vec<&str> = cmd_str.split_whitespace().collect();
-							if args.len() > 0 {
-								// enforce absolute exec path for security reason
-								if args[0].starts_with("/") {
-									let mut cmd = Command::new(&args[0]);
-									if args.len() > 1 {
-										cmd.args(&args[1..]);
-									}
-									log::info!("  files changed. Executing \"{}\"", cmd_str);
-									let res = cmd.output();
-									if res.is_err() {
-										log::error!("Failed to execute \"{}\"", cmd_str);
-									}
-								} else {
-									log::error!("cmd \"{}\" must be absolute and start with / to be executed", cmd_str);
-								}
-							}
-						}
+    					conf.hooks.trigger(HookType::MODIFIED);
 					}
 
 					// increment generated counter
@@ -452,6 +434,8 @@ async fn main_loop(args: &Args) -> Result<()> {
 						first_run = false;
 						// signal s6 readiness that all config files have been generated
 						s6_ready(args.ready_fd);
+						// trigger ready hook if defined
+						conf.hooks.trigger(HookType::READY);
 						// quit if not in daemon mode or no dynamic secrets used among templates
 						if !args.daemon || !secrets.any_leased() {
 							if args.daemon {
