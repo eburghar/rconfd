@@ -8,6 +8,7 @@ use std::{
 	fs::{self, File},
 	ops::{Deref, DerefMut},
 	path::{Path, PathBuf},
+	process::Command
 };
 
 pub struct TemplateConfs(HashMap<String, TemplateConf>);
@@ -100,6 +101,47 @@ impl TemplateConfs {
 type Conf = HashMap<String, TemplateConf>;
 
 #[derive(Debug, Deserialize)]
+pub struct Hooks {
+    /// executed whenever some files have been modified
+    pub modified: Option<String>,
+    /// executed right after the first manifestation
+    pub ready: Option<String>
+}
+
+pub enum HookType {
+    MODIFIED,
+    READY
+}
+
+impl Hooks {
+    pub fn trigger(&self, hook: HookType) {
+        let hook = match hook {
+            HookType::MODIFIED => &self.modified,
+            HookType::READY => &self.ready
+        };
+		if let Some(ref cmd_str) = hook {
+			let args: Vec<&str> = cmd_str.split_whitespace().collect();
+			if args.len() > 0 {
+				// enforce absolute exec path for security reason
+				if args[0].starts_with("/") {
+					let mut cmd = Command::new(&args[0]);
+					if args.len() > 1 {
+						cmd.args(&args[1..]);
+					}
+					log::info!("  files changed. Executing \"{}\"", cmd_str);
+					let res = cmd.output();
+					if res.is_err() {
+						log::error!("Failed to execute \"{}\"", cmd_str);
+					}
+				} else {
+					log::error!("cmd \"{}\" must be absolute and start with / to be executed", cmd_str);
+				}
+			}
+		}
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TemplateConf {
 	/// basedir for config files with relative path in jsonnet template
 	#[serde(deserialize_with = "string_envar")]
@@ -111,8 +153,8 @@ pub struct TemplateConf {
 	/// secrets to inject in the jsonnet engine as "secrets" extVar
 	#[serde(deserialize_with = "key_envar")]
 	pub secrets: HashMap<String, String>,
-	/// command to spawn if some files have been modified
-	pub cmd: Option<String>,
+	/// hooks to execute commands on events
+	pub hooks: Hooks
 }
 
 /// Substitute environement variables in a string
