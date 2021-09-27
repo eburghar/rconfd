@@ -62,34 +62,36 @@ with the `file` and `env` back-ends, you can easily compose your configuration f
 # Usage
 
 ```
-rconfd 0.8.1
+rconfd 0.9.0
 
-Usage: rconfd -d <dir> [-u <url>] [-j <jpath>] [-c <cacert>] [-t <token>] [-V] [-r <ready-fd>] [-D]
+Usage: rconfd [-d <dir>] [-u <url>] [-l <login-path>] [-j <jpath>] [-c <cacert>] [-T <token>] [-t <token-path>] [-v] [-r <ready-fd>] [-D]
 
-Generate config files from jsonnet templates and keep them in sync with secrets fetched from a vault server with kubernetes authentication.
+Generate files from jsonnet templates and eventually keep them in sync with secrets fetched from a vault server using a jwt token to authenticate with.
 
 Options:
-  -d, --dir         directory containing the rconfd config files
+  -d, --dir         directory containing the rconfd config files (/etc/rconfd)
   -u, --url         the vault url (https://localhost:8200)
-  -j, --jpath       , separated list of additional path for jsonnet libraries
-  -c, --cacert      path of the service account
-                    certificate	(/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
-  -t, --token       path of the kubernetes token
+  -l, --login-path  the login path (/auth/kubernetes/login)
+  -j, --jpath       , separated list of aditional path for jsonnet libraries
+  -c, --cacert      path of vault CA certificate
+                    (/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+  -T, --token       the JWT token string (take precedence over -t)
+  -t, --token-path  path of the JWT token
                     (/var/run/secrets/kubernetes.io/serviceaccount/token)
-  -V, --verbose     verbose mode
+  -v, --verbose     verbose mode
   -r, --ready-fd    s6 readiness file descriptor
-  -D, --daemon      daemon mode (no detach)
+  -D, --daemon      daemon mode (stays in the foreground)
   --help            display usage information
 ```
 
 `rconfd` takes its instructions from one or several json files laying inside a directory (`-d` argument).
 
-Each configuration declares one or several jsonnet template files which in turn generate one or several configuration
+Each configuration file declares one or several jsonnet template files which in turn generate one or several
 files.
 
 Here is a simple `test.json` file declaring only one template, and using 4 different
-secrets backends (`vault`, `env`, `file` and `exe`). We also use 4 different secrets engines
-with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv-v2),
+secrets backends (`vault`, `env`, `file` and `exe`). We also use 4 different secrets
+engines with the `vault` backend ([kv-v2](https://www.vaultproject.io/docs/secrets/kv/kv-v2),
 [pki](https://www.vaultproject.io/docs/secrets/pki), [databases](https://www.vaultproject.io/docs/secrets/databases),
 [transit](https://www.vaultproject.io/docs/secrets/transit)) which require using 2 differents http methods (`GET`
 by default, and `POST`).
@@ -294,7 +296,7 @@ image: mybuilder
 
 before_script:
   # generate all needed configuration files for build.sh
-  - rconfd -d /etc/rconfd -T CI_JOB_JWT -l /auth/jwt/login
+  - rconfd -T CI_JOB_JWT -l /auth/jwt/login
 
 build:
   stage: build

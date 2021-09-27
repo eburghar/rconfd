@@ -1,11 +1,11 @@
 use argh::{FromArgs, TopLevelCommand};
 use std::path::Path;
 
-/// Generate config files from jsonnet templates and keep them in sync with secrets fetched from a
-/// vault server with kubernetes authentication.
+/// Generate files from jsonnet templates and eventually keep them in sync with secrets fetched from a
+/// vault server using a jwt token to authenticate with.
 #[derive(FromArgs)]
 pub struct Args {
-	/// directory containing the rconfd config files
+	/// directory containing the rconfd config files (/etc/rconfd)
 	#[argh(option, short = 'd', default = "\"/etc/rconfd\".to_owned()")]
 	pub dir: String,
 
@@ -33,9 +33,9 @@ pub struct Args {
 	)]
 	pub cacert: String,
 
-	/// name of an environment variable containing the JWT token (take precedence over -t)
+	/// the JWT token string (take precedence over -t)
 	#[argh(option, short = 'T')]
-	pub token_var: Option<String>,
+	pub token: Option<String>,
 
 	/// path of the JWT token (/var/run/secrets/kubernetes.io/serviceaccount/token)
 	#[argh(
@@ -43,17 +43,17 @@ pub struct Args {
 		short = 't',
 		default = "\"/var/run/secrets/kubernetes.io/serviceaccount/token\".to_owned()"
 	)]
-	pub token: String,
+	pub token_path: String,
 
 	/// verbose mode
-	#[argh(switch, short = 'V')]
+	#[argh(switch, short = 'v')]
 	pub verbose: bool,
 
 	/// s6 readiness file descriptor
 	#[argh(option, short = 'r')]
 	pub ready_fd: Option<i32>,
 
-	/// daemon mode (don't detach)
+	/// daemon mode (stays in the foreground)
 	#[argh(switch, short = 'D')]
 	pub daemon: bool,
 }

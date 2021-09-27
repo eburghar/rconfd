@@ -46,16 +46,15 @@ use vaultk8s::{client::VaultClient, secret::Secret};
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// variables defining the state inside the main loop
-	// get the jwt token for environment variable or a file
-	let jwt = if let Some(var) = &args.token_var {
-		env::var(var)
-			.with_context(|| format!("unable to get jwt token from environment variable {}", var))?
+	// get the jwt token for parameters or a file
+	let jwt = if let Some(jwt) = &args.token {
+    	jwt.to_owned()
 	} else {
 		let mut jwt = String::new();
-		File::open(&args.token)
-			.map_err(|e| anyhow!("error opening {}: {}", &args.token, e))?
+		File::open(&args.token_path)
+			.map_err(|e| anyhow!("error opening {}: {}", &args.token_path, e))?
 			.read_to_string(&mut jwt)
-			.map_err(|e| anyhow!("error reading {}: {}", &args.token, e))?;
+			.map_err(|e| anyhow!("error reading {}: {}", &args.token_path, e))?;
 		jwt
 	};
 	// initialize a vault client
