@@ -34,7 +34,7 @@ pub struct Args {
 	)]
 	pub cacert: String,
 
-	/// the JWT token string (take precedence over -t)
+	/// the JWT token taken from the given variable name or from the given string if it fails (take precedence over -t)
 	#[argh(option, short = 'T')]
 	pub token: Option<String>,
 

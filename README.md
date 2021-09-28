@@ -63,7 +63,7 @@ on supervisor or container runtime.
 # Usage
 
 ```
-rconfd 0.9.0
+rconfd 0.9.1
 
 Usage: rconfd [-d <dir>] [-u <url>] [-l <login-path>] [-j <jpath>] [-c <cacert>] [-T <token>] [-t <token-path>] [-v] [-r <ready-fd>] [-D]
 
@@ -76,7 +76,8 @@ Options:
   -j, --jpath       , separated list of aditional path for jsonnet libraries
   -c, --cacert      path of vault CA certificate
                     (/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
-  -T, --token       the JWT token string (take precedence over -t)
+  -T, --token       the JWT token taken from the given variable name or from the
+                    given string if it fails (take precedence over -t)
   -t, --token-path  path of the JWT token
                     (/var/run/secrets/kubernetes.io/serviceaccount/token)
   -v, --verbose     verbose mode
@@ -298,7 +299,7 @@ You should make a build image (`mybuilder`) containing the rconfd configuration 
 executable. Then you just have to call rconfd in your pipelines script reading the JWT token from the environment
 variable CI_JOB_JWT and redefine the login path to `/auth/jwt/login` before calling your build script.
 
-Here is an example `.gitlab-ci.yml'
+Here is an example `.gitlab-ci.yml`
 
 ```yaml
 image: mybuilder

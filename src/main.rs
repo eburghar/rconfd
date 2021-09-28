@@ -16,7 +16,7 @@ mod task;
 use crate::{
 	args::Args,
 	checksum::Checksums,
-	conf::{config_files, parse_config, TemplateConfs, HookType},
+	conf::{config_files, parse_config, HookType, TemplateConfs},
 	libc::User,
 	message::{send_message, Message},
 	s6::s6_ready,
@@ -46,9 +46,10 @@ use vaultk8s::{client::VaultClient, secret::Secret};
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// variables defining the state inside the main loop
-	// get the jwt token for parameters or a file
+	// if token given as argument, get the value from an envar with given name, or just use the argument if it fails
 	let jwt = if let Some(jwt) = &args.token {
-    	jwt.to_owned()
+		env::var(jwt).ok().or_else(|| Some(jwt.to_owned())).unwrap()
+	// otherwize read from a file
 	} else {
 		let mut jwt = String::new();
 		File::open(&args.token_path)
@@ -421,7 +422,7 @@ async fn main_loop(args: &Args) -> Result<()> {
 
 					// if checksums changed and not on first run, then trigger modified hook
 					if changes && !first_run {
-    					conf.hooks.trigger(HookType::MODIFIED);
+						conf.hooks.trigger(HookType::MODIFIED);
 					}
 
 					// increment generated counter

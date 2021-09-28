@@ -5,10 +5,11 @@ use async_std::channel::Sender;
 use serde::{de, Deserialize, Deserializer};
 use std::{
 	collections::HashMap,
+	fmt,
 	fs::{self, File},
 	ops::{Deref, DerefMut},
 	path::{Path, PathBuf},
-	process::Command
+	process::Command,
 };
 
 pub struct TemplateConfs(HashMap<String, TemplateConf>);
@@ -102,23 +103,32 @@ type Conf = HashMap<String, TemplateConf>;
 
 #[derive(Debug, Deserialize)]
 pub struct Hooks {
-    /// executed whenever some files have been modified
-    pub modified: Option<String>,
-    /// executed right after the first manifestation
-    pub ready: Option<String>
+	/// executed whenever some files have been modified
+	pub modified: Option<String>,
+	/// executed right after the first manifestation
+	pub ready: Option<String>,
 }
 
 pub enum HookType {
-    MODIFIED,
-    READY
+	MODIFIED,
+	READY,
+}
+
+impl fmt::Display for HookType {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			HookType::MODIFIED => write!(f, "modified"),
+			HookType::READY => write!(f, "ready"),
+		}
+	}
 }
 
 impl Hooks {
-    pub fn trigger(&self, hook: HookType) {
-        let hook = match hook {
-            HookType::MODIFIED => &self.modified,
-            HookType::READY => &self.ready
-        };
+	pub fn trigger(&self, hook_type: HookType) {
+		let hook = match hook_type {
+			HookType::MODIFIED => &self.modified,
+			HookType::READY => &self.ready,
+		};
 		if let Some(ref cmd_str) = hook {
 			let args: Vec<&str> = cmd_str.split_whitespace().collect();
 			if args.len() > 0 {
@@ -128,17 +138,20 @@ impl Hooks {
 					if args.len() > 1 {
 						cmd.args(&args[1..]);
 					}
-					log::info!("  files changed. Executing \"{}\"", cmd_str);
+					log::info!("  hook {} trigerred. Executing \"{}\"", hook_type, cmd_str);
 					let res = cmd.output();
 					if res.is_err() {
 						log::error!("Failed to execute \"{}\"", cmd_str);
 					}
 				} else {
-					log::error!("cmd \"{}\" must be absolute and start with / to be executed", cmd_str);
+					log::error!(
+						"cmd \"{}\" must be absolute and start with / to be executed",
+						cmd_str
+					);
 				}
 			}
 		}
-    }
+	}
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,7 +167,7 @@ pub struct TemplateConf {
 	#[serde(deserialize_with = "key_envar")]
 	pub secrets: HashMap<String, String>,
 	/// hooks to execute commands on events
-	pub hooks: Hooks
+	pub hooks: Hooks,
 }
 
 /// Substitute environement variables in a string
