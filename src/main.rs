@@ -58,6 +58,8 @@ async fn main_loop(args: &Args) -> Result<()> {
 			.map_err(|e| anyhow!("error reading {}: {}", &args.token_path, e))?;
 		jwt
 	};
+	// trim jwt on both ends
+	let jwt = jwt.trim();
 	// initialize a vault client
 	let mut client = VaultClient::new(&args.url, &args.login_path, &jwt, Some(&args.cacert))?;
 	// map secret path to secret value

@@ -297,7 +297,8 @@ vault write auth/jwt/role/myrole - <<EOF
 
 You should make a build image (`mybuilder`) containing the rconfd configuration files (`/etc/rconfd`) and rconfd
 executable. Then you just have to call rconfd in your pipelines script reading the JWT token from the environment
-variable CI_JOB_JWT and redefine the login path to `/auth/jwt/login` before calling your build script.
+variable `CI_JOB_JWT` and redefine the login path to `/auth/jwt/login` before calling your build script. You must
+define a `VAULT_URL` variable in project or group settings.
 
 Here is an example `.gitlab-ci.yml`
 
@@ -306,7 +307,7 @@ image: mybuilder
 
 before_script:
   # generate all needed configuration files for Makefile
-  - rconfd -T $CI_JOB_JWT -l /auth/jwt/login
+  - rconfd -T CI_JOB_JWT -l /auth/jwt/login
 
 build:
   stage: build
