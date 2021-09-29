@@ -7,7 +7,7 @@ use std::{
 	ops::{Deref, DerefMut},
 	fmt
 };
-use vaultk8s::secret::Secret;
+use vault_jwt::secret::Secret;
 
 /// new type to define new methods over HashMap
 pub struct Secrets(HashMap<String, Option<Secret>>);

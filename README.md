@@ -47,8 +47,8 @@ with the `file` and `env` back-ends, you can easily compose your configuration f
 # Process supervisor inside containers ?
 
 If you have short-lived secrets tied to a service running in a container, you can run rconfd (not in daemon mode)
-before your service, expect your service to fail after a while (ex: database credentials expired) and trust
-kubernetes to restart your pod quickly with the new configuration.
+before your service, expect your service to fail after a while (ex: database credentials expired) and entrust
+kubernetes to restart your pod quickly which will create an updated configuration.
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
 in the rigid general approach of one executable per container, which forces you to decouple your software stack
@@ -59,6 +59,16 @@ injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vaul
 With several services and `rconfd` in the same container supervised by s6, everything stays coherent and tied
 together. The orchestration is simple and smarter, it starts faster, and scale without putting unnecessary pressure
 on supervisor or container runtime.
+
+# Setup
+
+- deploy a [vault server](https://learn.hashicorp.com/tutorials/vault/kubernetes-raft-deployment-guide?in=vault/kubernetes)
+- activate [one or several secret engines](https://www.vaultproject.io/docs/secrets),
+- activate [kubernetes auth method](https://www.vaultproject.io/docs/auth/kubernetes) and [jwt auth
+  method](https://www.vaultproject.io/docs/auth/jwt),
+- create [policies](https://www.vaultproject.io/docs/concepts/policies) allowing your roles to access the secrets
+  inside the back-ends
+- create some secrets
 
 # Usage
 
@@ -187,21 +197,63 @@ exe:str|js[,dynamic|static]:cmd args
   executed only once at startup.
 
 
+# jsonnet template
+
+Using the rconfd config file `test.json` above, we could write the following `test.jsonnet` template to create a json
+file: `dump.json` (relative to `/etc/test`) and 3 text files: `/etc/ssl/cert.crt`, `/etc/ssl/cert.key`, and `test.txt`
+(relative to `/etc/test`). `test.txt` file is only generated if the `file.json` indicated in the rconfd config
+file and imported in the `secrets['file']` variable, has a root key `test` with a `true` value.
+
+```jsonnet
+local secrets = std.extVar("secrets");
+{
+	// we define shortcuts for easy access to the secret extVar content
+	// the :: is to hide the corresponding key in the final result, avoiding generating a file with the same name
+	// kv2 secret backend contains data and metadata so go directly to the data
+	mysecret:: secrets['mysecret']['data'],
+	// remove the hmac prefix
+	mysecret2:: std.split(secrets['mysecret2'].hmac, ':')[2],
+	namespace:: secrets['namespace'],
+	file:: secrets['file'],
+	cert:: secrets['cert'],
+	// turn cpu into an int for calculation
+	cpu:: std.parseInt(secrets['cpu']),
+	timestamp:: secrets['timestamp'],
+
+	// just dump all secrets using json manifestation
+	'dump.json': std.manifestJsonEx({
+		mysecret: $.mysecret,
+		mysecret2: $.mysecret2,
+		namespace: $.namespace,
+		file: $.file,
+		cert: $.cert,
+		cpu: $.cpu,
+		timestamp: $.timestamp
+	}, '  ')
+
+	// save certificate and key in separate files
+	'/etc/ssl/cert.crt': $.cert['certificate'],
+	'/etc/ssl/cert.key': $.cert['private_key'],
+
+	// conditional file manifestation
+	[if secrets['file']['test'] == 'true' then 'test.txt']: 'hello world!'
+}
+```
 # S6 integration
 
 As rconfd has been made to configure (and actively reconfigure) one or several services configurations files,
-you need at least 2 services in your container. [s6](https://skarnet.org/software/s6/) supervision suite is a
+you need at least 2 services running in your container. [s6](https://skarnet.org/software/s6/) supervision suite is a
 natural fit for managing multi services containers. It's simple as in clever, and extremely lightweight (full suite
 under 900K in alpine). [s6-overlay](https://github.com/just-containers/s6-overlay) can kickstart you for
 using it inside your containers.
 
 One key component of s6 is [execline](https://skarnet.org/software/execline/) which aim is to replace your interpreter
-(ie. bash) with a no-interpreter. An execline script is in fact one command line where each command consumes its
-own arguments, complete its task and then replaces itself with the remaining arguments (chainloading), leaving
-no trace of its passage after that. The script is parsed only once at startup and no interpreter lies in memory
-during the process, and yet you can do everything a bash can do. It looks like an *impossible mission* script that
-is consuming itself to the end. Only the remaining script stays in memory at each step. No interpreter means
-fewer security risks (no injection possible with execline), fewer resources allocated, and instant startup.
+(ie. bash) with a no-interpreter. An execline script is in fact one command line where each executable consumes
+its own arguments, complete its task and then replaces itself with the remaining arguments (chainloading). The
+script is parsed only once at startup and no interpreter lies in memory during the process, and yet you can do
+everything a bash can do. It looks like an *impossible mission* script that is consuming itself to the end. Only
+the remaining script stays in memory at each step. No interpreter means fewer security risks (no injection possible
+with execline), fewer resources allocated, and instant startup.
 
 This is the `/etc/services.d/rconfd/run` script I use in my s6-overlay + rconfd based image. In the service
 directory you can put a `/etc/services.d/rconfd/notification-fd` with the content `3` which indicates that you want
@@ -245,7 +297,7 @@ if { s6-test ${?} = 0 }
 ```
 
 In the `hooks.modified` part of the rconfd config file you can use [`s6-svc`](https://skarnet.org/software/s6/s6-svc.html)
-to signal (here a simple reload) a given service that configuration have changed
+to signal (here a simple reload with `SIGHUP`) a given service that configuration have changed
 
 ```json
 {
@@ -275,8 +327,8 @@ path "kv/data/secrets/*" {
 EOF
 ```
 
-Create a role. Here You can only login with that role if the token is coming from a group and the
-build is on a protected tag.
+Create a role. Here You can only login with that role if the project is inside the `alpine` group and the
+build is for a protected tag (release).
 
 ```sh
 vault write auth/jwt/role/myrole - <<EOF
@@ -297,8 +349,9 @@ vault write auth/jwt/role/myrole - <<EOF
 
 You should make a build image (`mybuilder`) containing the rconfd configuration files (`/etc/rconfd`) and rconfd
 executable. Then you just have to call rconfd in your pipelines script reading the JWT token from the environment
-variable `CI_JOB_JWT` and redefine the login path to `/auth/jwt/login` before calling your build script. You must
-define a `VAULT_URL` variable in project or group settings.
+variable `CI_JOB_JWT` (note that we use a variable name to not expose the token on the command line arguments),
+and redefine the login path to `/auth/jwt/login` before calling your build script. You must define a `VAULT_URL`
+variable in project or group settings.
 
 Here is an example `.gitlab-ci.yml`
 
@@ -314,57 +367,6 @@ build:
   script:
   # The Makefile use files containing secrets generated by rconfd
   - make
-```
-
-# Template Example
-
-You should correctly
-- [setup a vault server](https://learn.hashicorp.com/tutorials/vault/kubernetes-raft-deployment-guide?in=vault/kubernetes)
-- [activate one or several secret engines](https://www.vaultproject.io/docs/secrets),
-- [activate kubernetes auth method](https://www.vaultproject.io/docs/auth/kubernetes),
-- [create policies](https://www.vaultproject.io/docs/concepts/policies) allowing your roles to access the secrets
-  inside the back-ends
-- create some secrets
-
-Using the rconfd config file `test.json` above, we could write the following `test.jsonnet` template to create a json
-file: `dump.json` (relative to `/etc/test`) and 3 text files: `/etc/ssl/cert.crt`, `/etc/ssl/cert.key`, and `test.txt`
-(relative to `/etc/test`). `test.txt` file is only generated if the `file.json` indicated in the rconfd config
-file and imported in the `secrets['file']` variable, has a root key `test` with a `true` value.
-
-```jsonnet
-local secrets = std.extVar("secrets");
-{
-	// we define shortcuts for easy access to the secret extVar content
-	// the :: is to hide the corresponding key in the final result, avoiding generating a file with the same name
-	// kv2 secret backend contains data and metadata so go directly to the data
-	mysecret:: secrets['mysecret']['data'],
-	// remove the hmac prefix
-	mysecret2:: std.split(secrets['mysecret2'].hmac, ':')[2],
-	namespace:: secrets['namespace'],
-	file:: secrets['file'],
-	cert:: secrets['cert'],
-	// turn cpu into an int for calculation
-	cpu:: std.parseInt(secrets['cpu']),
-	timestamp:: secrets['timestamp'],
-
-	// just dump all secrets using json manifestation
-	'dump.json': std.manifestJsonEx({
-		mysecret: $.mysecret,
-		mysecret2: $.mysecret2,
-		namespace: $.namespace,
-		file: $.file,
-		cert: $.cert,
-		cpu: $.cpu,
-		timestamp: $.timestamp
-	}, '  ')
-
-	// save certificate and key in separate files
-	'/etc/ssl/cert.crt': $.cert['certificate'],
-	'/etc/ssl/cert.key': $.cert['private_key'],
-
-	// conditional file manifestation
-	[if secrets['file']['test'] == 'true' then 'test.txt']: 'hello world!'
-}
 ```
 
 # FAQ

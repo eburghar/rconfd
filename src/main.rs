@@ -42,7 +42,7 @@ use std::{
 	process::Command,
 	time::Duration,
 };
-use vaultk8s::{client::VaultClient, secret::Secret};
+use vault_jwt::{client::VaultClient, secret::Secret};
 
 async fn main_loop(args: &Args) -> Result<()> {
 	// variables defining the state inside the main loop

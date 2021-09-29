@@ -1002,7 +1002,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
- "vaultk8s",
+ "vault-jwt",
 ]
 
 [[package]]
@@ -1314,9 +1314,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "vaultk8s"
+name = "vault-jwt"
 version = "0.5.0"
-source = "git+https://github.com/eburghar/vaultk8s.git?branch=master#acfd9aebd776a4bd851c466f0ca21e19f019d462"
+source = "git+https://github.com/eburghar/vault-jwt.git?branch=master#f78578ce4dd33a60f4895ca6666f6049fd5f68b4"
 dependencies = [
  "isahc",
  "log",
