@@ -74,6 +74,28 @@ on supervisor or container runtime.
 # Usage
 
 ```
+rconfd 0.10.0
+
+Usage: rconfd [-d <dir>] [-u <url>] [-l <login-path>] [-j <jpath>] [-c <cacert>] [-T <token>] [-t <token-path>] [-v] [-r <ready-fd>] [-D]
+
+Generate files from jsonnet templates and eventually keep them in sync with secrets fetched from a vault server using a jwt token to authenticate with.
+
+Options:
+  -d, --dir         directory containing the rconfd config files (/etc/rconfd)
+  -u, --url         the vault url ($VAULT_URL or https://localhost:8200/v1)
+  -l, --login-path  the login path (/auth/kubernetes/login)
+  -j, --jpath       , separated list of aditional path for jsonnet libraries
+  -c, --cacert      path of vault CA certificate
+                    (/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
+  -T, --token       the JWT token taken from the given variable name or from the
+                    given string if it fails (take precedence over -t)
+  -t, --token-path  path of the JWT token
+                    (/var/run/secrets/kubernetes.io/serviceaccount/token)
+  -v, --verbose     verbose mode
+  -r, --ready-fd    s6 readiness file descriptor
+  -D, --daemon      daemon mode (stays in the foreground)
+  --help            display usage information
+
 ```
 
 `rconfd` takes its instructions from one or several json files laying inside a directory (`-d` argument).
