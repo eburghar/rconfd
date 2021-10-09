@@ -25,14 +25,13 @@ various template engines and secrets back-ends ([confd](https://github.com/kelse
 [consul-template](https://github.com/hashicorp/consul-template)...) but because such a tool can run in a lot
 of containers inside the same host, I wanted the lightest and fastest implementation as possible with a minimal
 surface attack, even at the cost of some flexibility (few back-ends, one template engine). Having this tool written
-in Rust gives you safeness, correctness and easy maintenance with no special efforts while matching C speed and
-memory footprint.
+in Rust gives you safeness, correctness and easy maintenance with no special efforts while matching C speed.
 
 For CI/CD, people traditionally use tools that expose secrets to enviroment variables (like
 [envconsul](https://github.com/hashicorp/envconsul)). [`envlt`](https://github.com/eburghar/envlt.git) is a
-lightweight alternative (or companion) of `rconfd` that does just that without embedding a jsonnet interpreter. Because
+lightweight alternative (or companion) of `rconfd` that does just that without embeding a jsonnet interpreter. Because
 secrets can be structured and jsonnet allow to destructure them without the need of external tools, `rconfd`
-can be preferable over `envlt` for complex CI/CD cases.
+can be preferable for complex CI/CD cases over `envlt`.
 
 # jsonnet ?
 
@@ -59,8 +58,8 @@ tests and blind kill and restart on timeout if conditions are not not met (which
 injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)).
 
 With several services and `rconfd` in the same container supervised by s6, everything stays coherent and tied
-together. The orchestration is simple and smarter, it starts faster, synchronize faster (eventually without downtime),
-and scale without putting unnecessary pressure on container supervisor and runtime.
+together. The orchestration is simple and smarter, it starts faster, and scale without putting unnecessary pressure
+on supervisor or container runtime.
 
 # Setup
 

@@ -10,16 +10,14 @@ pub enum Error {
 	MissingRole(String),
 	#[error(transparent)]
 	ParseError(#[from] serde_json::error::Error),
-	#[error("Expected argument {0} on {1}")]
-	ExpectedArg(String, String),
-	#[error("No matching }} found")]
-	RightBrace,
-	#[error("in \"{0}\", command \"{1}\" should be absolute and start with /")]
-	RelativePath(String, String),
-	#[error(transparent)]
-	UnknownVar(#[from] std::env::VarError),
-	#[error("json pointer \"{0}\" returns no result")]
-	Pointer(String),
+    #[error("Expected argument {0} on {1}")]
+    ExpectedArg(String, String),
+    #[error("No matching }} found")]
+    RightBrace,
+    #[error("in \"{0}\", command \"{1}\" should be absolute and start with /")]
+    RelativePath(String, String),
+    #[error(transparent)]
+    UnknownVar(#[from] std::env::VarError)
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
