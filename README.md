@@ -74,7 +74,7 @@ on supervisor or container runtime.
 # Usage
 
 ```
-rconfd 0.10.0
+rconfd 0.11.0
 
 Usage: rconfd [-d <dir>] [-u <url>] [-l <login-path>] [-j <jpath>] [-c <cacert>] [-T <token>] [-t <token-path>] [-v] [-r <ready-fd>] [-D]
 
@@ -114,8 +114,6 @@ Variables are substitued in secrets' keys and `dir` value, before beeing process
 allows you to scope the vault role to the namespace where you have deployed your pod, while `${INSTANCE}` allows you
 to change the final destination of relative manifests at runtime (you can't use variables in jsonnet keys).
 
-We use also json pointer (`#/data`) because kv2 backend has `data` and `metadata` and we are just interested by data.
-
 ```json
 {
 	"test.jsonnet": {
@@ -123,7 +121,7 @@ We use also json pointer (`#/data`) because kv2 backend has `data` and `metadata
 		"mode": "0644",
 		"user": "test-user",
 		"secrets": {
-			"vault:${NAMESPACE}-role:kv/data/test/mysecret#/data": "mysecret",
+			"vault:${NAMESPACE}-role:kv/data/test/mysecret": "mysecret",
 			"vault:${NAMESPACE}-role:database/creds/mydb": "mydb",
 			"vault:${NAMESPACE}-role,POST,common_name=example.com:pki/issue/example.com": "cert",
 			"vault:${NAMESPACE}-role,POST,input=password:transit/hmac/mysecret": "mysecret2",
@@ -163,15 +161,13 @@ fetch each secret only once) and the `hooks.modified` is executed if any of the 
 `vault` backend is used to fetch a secret from the vault server. The general syntax is
 
 ```
-vault:role[,GET|PUT|POST|LIST][,key=val]*:path[#json_pointer]
+vault:role[,GET|PUT|POST|LIST][,key=val]*:path
 ```
 
 - `role` is the role name used for vault authentication,
 - an optional http method that defaults to `GET`,
 - optional keywords arguments that are sent as json dictionary in the body of the request,
 - a path corresponding to the vault api point (without `/v1/`),
-- an optional [json pointer](https://datatracker.ietf.org/doc/html/rfc6901) to define variables from and that defaults
-  to the root of the tree.
 
 ## Env backend
 
@@ -221,7 +217,8 @@ local secrets = std.extVar("secrets");
 {
 	// we define shortcuts for easy access to the secret extVar content
 	// the :: is to hide the corresponding key in the final result, avoiding generating a file with the same name
-	mysecret:: secrets['mysecret'],
+	// kv2 secret backend contains data and metadata so go directly to the data
+	mysecret:: secrets['mysecret']['data'],
 	// remove the hmac prefix
 	mysecret2:: std.split(secrets['mysecret2'].hmac, ':')[2],
 	namespace:: secrets['namespace'],
@@ -275,8 +272,7 @@ on fd 3 (0: stdin, 1: stdout, 2: stderr).
 ```sh
 #!/usr/bin/execlineb -P
 with-contenv
-importas -u -D https://vault:8200/v1 VAULT_URL VAULT_URL
-foreground { /usr/bin/rconfd -D -u ${VAULT_URL} -d /etc/rconfd -j /etc/rconfd -r 3 }
+foreground { /usr/bin/rconfd -D -j /etc/rconfd -r 3 }
 importas -u ? ?
 if { s6-test ${?} = 0 }
 	s6-pause

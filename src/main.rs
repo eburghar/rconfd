@@ -169,7 +169,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 					let role = secret_path
 						.args
 						.get(0)
-						.ok_or_else(|| Error::MissingRole(format!("{}", secret_path)))?;
+						.ok_or_else(|| Error::MissingRole(format!("{}", path)))?;
 					let method = secret_path
 						.args
 						.get(1)
@@ -182,13 +182,15 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								.get_secret_async(
 									role,
 									&method,
-									secret_path.path,
-									secret_path.anchor,
+									secret_path.full_path,
 									secret_path.kwargs.as_ref(),
 								)
 								.await
 								.with_context(|| {
-									format!("failed to get the secret \"{}\"", path)
+									format!(
+										"failed to get the secret \"{}\"",
+										secret_path.full_path
+									)
 								})?;
 
 							// schedule the newewal of the secret which can trigger template generation
@@ -204,23 +206,25 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 							}
 
 							// replace secret value an regenerate template if necessary
-							if secrets.replace(secret_path.path, secret) && gen_tmpl {
-								confs.generate_templates(&secrets, secret_path.path, &sender).await?;
+							if secrets.replace(secret_path.full_path, secret) && gen_tmpl {
+								confs
+									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.await?;
 							}
 						}
 
 						Backend::Env => {
 							let value = match secret_path.args[0] {
 								"str" => Value::String(
-									env::var(secret_path.path_anchor).unwrap_or("".to_owned()),
+									env::var(secret_path.full_path).unwrap_or("".to_owned()),
 								),
 								"js" => serde_json::from_str(
-									&env::var(secret_path.path).unwrap_or("\"\"".to_owned()),
+									&env::var(secret_path.full_path).unwrap_or("\"\"".to_owned()),
 								)
 								.with_context(|| {
 									format!(
 										"failed to parse \"{}\" variable content",
-										secret_path.path
+										secret_path.full_path
 									)
 								})?,
 								_ => Err(Error::ExpectedArg(
@@ -228,29 +232,36 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									secret_path.to_string(),
 								))?,
 							};
-							if secrets.replace(secret_path.path_anchor, Secret::new(value, None)) && gen_tmpl {
-								confs.generate_templates(&secrets, secret_path.path_anchor, &sender).await?;
+							if secrets.replace(secret_path.full_path, Secret::new(value, None))
+								&& gen_tmpl
+							{
+								confs
+									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.await?;
 							}
 						}
 
 						Backend::File => {
 							let mut file =
-								File::open(secret_path.path_anchor).with_context(|| {
-									format!("failed to open \"{}\"", secret_path.path)
+								File::open(secret_path.full_path).with_context(|| {
+									format!("failed to open \"{}\"", secret_path.full_path)
 								})?;
 
 							let value = match secret_path.args[0] {
 								"str" => {
 									let mut buffer = String::new();
 									file.read_to_string(&mut buffer).with_context(|| {
-										format!("failed to read \"{}\"", secret_path.path)
+										format!("failed to read \"{}\"", secret_path.full_path)
 									})?;
 									Value::String(buffer)
 								}
 								"js" => {
 									let reader = BufReader::new(file);
 									serde_json::from_reader(reader).with_context(|| {
-										format!("failed to parse file \"{}\"", secret_path.path)
+										format!(
+											"failed to parse file \"{}\"",
+											secret_path.full_path
+										)
 									})?
 								}
 								_ => Err(Error::ExpectedArg(
@@ -258,14 +269,18 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									secret_path.to_string(),
 								))?,
 							};
-							if secrets.replace(secret_path.path_anchor, Secret::new(value, None)) && gen_tmpl {
-								confs.generate_templates(&secrets, secret_path.path_anchor, &sender).await?;
+							if secrets.replace(secret_path.full_path, Secret::new(value, None))
+								&& gen_tmpl
+							{
+								confs
+									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.await?;
 							}
 						}
 
 						Backend::Exe => {
 							let args: Vec<&str> =
-								secret_path.path_anchor.split_whitespace().collect();
+								secret_path.full_path.split_whitespace().collect();
 							// enforce absolute exec path for security reason
 							if !args[0].starts_with("/") {
 								Err(Error::RelativePath(path.to_string(), args[0].to_owned()))?;
@@ -277,18 +292,21 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								args[0]
 							});
 							if current_user.uid == 0 {
-								log::debug!("    executing \"{}\" as nobody", secret_path.path);
+								log::debug!(
+									"    executing \"{}\" as nobody",
+									secret_path.full_path
+								);
 								cmd = cmd.args(&["-u", "nobody", args[0]]);
 							}
 							if args.len() > 1 {
 								cmd = cmd.args(&args[1..]);
 							}
 							let output = cmd.output().with_context(|| {
-								format!("error executing \"{}\"", secret_path.path)
+								format!("error executing \"{}\"", secret_path.full_path)
 							})?;
 							if !output.status.success() {
 								Err(Error::CmdError(
-									secret_path.path.to_owned(),
+									secret_path.full_path.to_owned(),
 									output.status.code().unwrap_or(1),
 									String::from_utf8_lossy(&output.stderr).to_string(),
 								))?;
@@ -298,12 +316,12 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									String::from_utf8_lossy(&output.stdout).trim().to_owned(),
 								),
 								"js" => serde_json::from_str(
-									&env::var(secret_path.path).unwrap_or("\"\"".to_owned()),
+									&env::var(secret_path.full_path).unwrap_or("\"\"".to_owned()),
 								)
 								.with_context(|| {
 									format!(
 										"failed to parse \"{}\" variable content",
-										secret_path.path
+										secret_path.full_path
 									)
 								})?,
 								_ => Err(Error::ExpectedArg(
@@ -318,13 +336,17 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									"dynamic" => Some(Duration::from_secs(0)),
 									_ => Err(Error::ExpectedArg(
 										"\"static\" or \"dynamic\"".to_owned(),
-										path.to_string(),
+										secret_path.to_string(),
 									))?,
 								},
 								_ => None,
 							};
-							if secrets.replace(secret_path.path_anchor, Secret::new(value, dur)) && gen_tmpl {
-								confs.generate_templates(&secrets, secret_path.path_anchor, &sender).await?;
+							if secrets.replace(secret_path.full_path, Secret::new(value, dur))
+								&& gen_tmpl
+							{
+								confs
+									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.await?;
 							}
 						}
 					}
