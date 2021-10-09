@@ -11,11 +11,7 @@ pub struct Args {
 	pub dir: String,
 
 	/// the vault url ($VAULT_URL or https://localhost:8200/v1)
-	#[argh(
-		option,
-		short = 'u',
-		default = "default_url()"
-	)]
+	#[argh(option, short = 'u', default = "default_url()")]
 	pub url: String,
 
 	/// the login path (/auth/kubernetes/login)
@@ -68,22 +64,17 @@ fn default_url() -> String {
 		.unwrap()
 }
 
-fn cmd<'a>(default: &'a String, path: &'a String) -> &'a str {
-	Path::new(path)
-		.file_name()
-		.map(|s| s.to_str())
-		.flatten()
-		.unwrap_or(default.as_str())
-}
-
 /// copy of argh::from_env to insert command name and version in help text
 pub fn from_env<T: TopLevelCommand>() -> T {
 	const NAME: &'static str = env!("CARGO_BIN_NAME");
 	const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-	let strings: Vec<String> = std::env::args().collect();
-	let cmd = cmd(&strings[0], &strings[0]);
-	let strs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
-	T::from_args(&[cmd], &strs[1..]).unwrap_or_else(|early_exit| {
+	let args: Vec<String> = std::env::args().collect();
+	let cmd = Path::new(&args[0])
+		.file_name()
+		.map_or(None, |s| s.to_str())
+		.unwrap_or(&args[0]);
+	let args_str: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+	T::from_args(&[cmd], &args_str[1..]).unwrap_or_else(|early_exit| {
 		println!("{} {}\n", NAME, VERSION);
 		println!("{}", early_exit.output);
 		std::process::exit(match early_exit.status {

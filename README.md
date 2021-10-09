@@ -28,10 +28,10 @@ surface attack, even at the cost of some flexibility (few back-ends, one templat
 in Rust gives you safeness, correctness and easy maintenance with no special efforts while matching C speed.
 
 For CI/CD, people traditionally use tools that expose secrets to enviroment variables (like
-[envconsul](https://github.com/hashicorp/envconsul)). [`envlt`](https://github.com/eburghar/envlt.git) does just that
-and share some code with `rconfd` without embeding a jsonnet interpreter. Because secrets can be structured and
-jsonnet allow to destructure them without the need of external tools, `rconfd` can be preferable for complex CI/CD
-cases too.
+[envconsul](https://github.com/hashicorp/envconsul)). [`envlt`](https://github.com/eburghar/envlt.git) is a
+lightweight alternative (or companion) of `rconfd` that does just that without embeding a jsonnet interpreter. Because
+secrets can be structured and jsonnet allow to destructure them without the need of external tools, `rconfd`
+can be preferable for complex CI/CD cases over `envlt`.
 
 # jsonnet ?
 
@@ -40,15 +40,16 @@ like) for generating them expose you to malformations (you forgot to close a `(`
 in a loop, ...), injection attacks, and escaping hell. With jsonnet it's impossible to generate malformed files,
 unless you use string templates, which defeat the purpose of using jsonnet (objects) in the first place.
 
-Jsonnet permits using complex operations for merging, adding, overriding and allows you to easily and securely
-specialize your configuration files. By using mounts or environment variables in your kubernetes manifests, along
-with the `file` and `env` back-ends, you can easily compose your configuration files at startup in a flexible way.
+[jsonnet](https://jsonnet.org/) permits using complex operations for merging, adding, overriding and allows you
+to easily and securely specialize your configuration files. By using mounts or environment variables in your
+kubernetes manifests, along with the `file` and `env` back-ends, you can easily compose your configuration files
+at startup in a flexible way.
 
 # Process supervisor inside containers ?
 
 If you have short-lived secrets tied to a service running in a container, you can run rconfd (not in daemon mode)
 before your service, expect your service to fail after a while (ex: database credentials expired) and entrust
-kubernetes to restart your pod quickly which will create an updated configuration.
+kubernetes to restart your pod quickly (with updated credentials).
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
 in the rigid general approach of one executable per container, which forces you to decouple your software stack
@@ -73,27 +74,6 @@ on supervisor or container runtime.
 # Usage
 
 ```
-rconfd 0.9.1
-
-Usage: rconfd [-d <dir>] [-u <url>] [-l <login-path>] [-j <jpath>] [-c <cacert>] [-T <token>] [-t <token-path>] [-v] [-r <ready-fd>] [-D]
-
-Generate files from jsonnet templates and eventually keep them in sync with secrets fetched from a vault server using a jwt token to authenticate with.
-
-Options:
-  -d, --dir         directory containing the rconfd config files (/etc/rconfd)
-  -u, --url         the vault url ($VAULT_URL or https://localhost:8200/v1)
-  -l, --login-path  the login path (/auth/kubernetes/login)
-  -j, --jpath       , separated list of aditional path for jsonnet libraries
-  -c, --cacert      path of vault CA certificate
-                    (/var/run/secrets/kubernetes.io/serviceaccount/ca.crt)
-  -T, --token       the JWT token taken from the given variable name or from the
-                    given string if it fails (take precedence over -t)
-  -t, --token-path  path of the JWT token
-                    (/var/run/secrets/kubernetes.io/serviceaccount/token)
-  -v, --verbose     verbose mode
-  -r, --ready-fd    s6 readiness file descriptor
-  -D, --daemon      daemon mode (stays in the foreground)
-  --help            display usage information
 ```
 
 `rconfd` takes its instructions from one or several json files laying inside a directory (`-d` argument).
@@ -112,6 +92,8 @@ Variables are substitued in secrets' keys and `dir` value, before beeing process
 allows you to scope the vault role to the namespace where you have deployed your pod, while `${INSTANCE}` allows you
 to change the final destination of relative manifests at runtime (you can't use variables in jsonnet keys).
 
+We use also json pointer (`#/data`) because kv2 backend has `data` and `metadata` and we are just interested by data.
+
 ```json
 {
 	"test.jsonnet": {
@@ -119,7 +101,7 @@ to change the final destination of relative manifests at runtime (you can't use 
 		"mode": "0644",
 		"user": "test-user",
 		"secrets": {
-			"vault:${NAMESPACE}-role:kv/data/test/mysecret": "mysecret",
+			"vault:${NAMESPACE}-role:kv/data/test/mysecret#/data": "mysecret",
 			"vault:${NAMESPACE}-role:database/creds/mydb": "mydb",
 			"vault:${NAMESPACE}-role,POST,common_name=example.com:pki/issue/example.com": "cert",
 			"vault:${NAMESPACE}-role,POST,input=password:transit/hmac/mysecret": "mysecret2",
@@ -142,28 +124,34 @@ a multi file output jsonnet template, meaning that its root keys represent the p
 and file permissions on successful manifestation if rconfd is executed as root.
 
 `secrets` maps a secret path to a variable name which become accessible inside jsonnet templates through a
-`secrets` [extVar](https://jsonnet.org/ref/stdlib.html) object variable. The path has the following syntax:
-`backend:args:path`, and can contain environment variables expressions `${NAME}`, in which case
-it is the resulting string, after substitutions, that should conform to the aforementioned syntax.
+`secrets` [extVar](https://jsonnet.org/ref/stdlib.html) object variable.
 
-# Backends
+# Path expression
+
+A path has the following syntax: `backend:args:path`.
+
+It can contain environment variables expressions (`${NAME}`), in which case it is the resulting string, after
+substitutions, that should conform to the aforementioned syntax.
 
 There are currently 4 supported back-ends. The secrets are collected among all templates and all config files (to
 fetch each secret only once) and the `hooks.modified` is executed if any of the config file change after manifestation.
 
-## Vault
+## Vault backend
 
 `vault` backend is used to fetch a secret from the vault server. The general syntax is
 
 ```
-vault:role[,GET|PUT|POST|LIST][,key=val]*:path
+vault:role[,GET|PUT|POST|LIST][,key=val]*:path[#json_pointer]
 ```
 
 - `role` is the role name used for vault authentication,
--  the optional http method defaults to `GET`
--  the optional keywords arguments are sent as json dictionary in the body of the request.
+- an optional http method that defaults to `GET`,
+- optional keywords arguments that are sent as json dictionary in the body of the request,
+- a path corresponding to the vault api point (without `/v1/`),
+- an optional [json pointer](https://datatracker.ietf.org/doc/html/rfc6901) to define variables from and that defaults
+  to the root of the tree.
 
-## Env
+## Env backend
 
 `env` backend is used to get a value from an environment variable. The general syntax is
 
@@ -173,7 +161,7 @@ env:str|js:name
 
 the value is parsed as json if `js` or kept as is if `str`
 
-## File
+## File backend
 
 `file` backend is used to fetch a secret from the content of the file. The general syntax is
 
@@ -183,7 +171,7 @@ file:str|js:name
 
 the value is parsed as json if `js` or kept as is if `str`
 
-## Exe
+## Exe backend
 
 `exe` backend is used to generate a secret from a command. The general syntax is
 
@@ -199,18 +187,19 @@ exe:str|js[,dynamic|static]:cmd args
 
 # jsonnet template
 
-Using the rconfd config file `test.json` above, we could write the following `test.jsonnet` template to create a json
-file: `dump.json` (relative to `/etc/test`) and 3 text files: `/etc/ssl/cert.crt`, `/etc/ssl/cert.key`, and `test.txt`
-(relative to `/etc/test`). `test.txt` file is only generated if the `file.json` indicated in the rconfd config
-file and imported in the `secrets['file']` variable, has a root key `test` with a `true` value.
+Using the rconfd config file `test.json` above, we could write the following `test.jsonnet` template to create:
+
+- a json file `dump.json` (relative to `/etc/test`)
+- 2 text files: `/etc/ssl/cert.crt`, `/etc/ssl/cert.key`,
+- and one conditional text file `test.txt` (relative to `/etc/test`) which is only generated if the `file.json`
+  (imported as json in the `secrets['file']` variable), has a root key `test` with a `true` value.
 
 ```jsonnet
 local secrets = std.extVar("secrets");
 {
 	// we define shortcuts for easy access to the secret extVar content
 	// the :: is to hide the corresponding key in the final result, avoiding generating a file with the same name
-	// kv2 secret backend contains data and metadata so go directly to the data
-	mysecret:: secrets['mysecret']['data'],
+	mysecret:: secrets['mysecret'],
 	// remove the hmac prefix
 	mysecret2:: std.split(secrets['mysecret2'].hmac, ':')[2],
 	namespace:: secrets['namespace'],
@@ -239,6 +228,7 @@ local secrets = std.extVar("secrets");
 	[if secrets['file']['test'] == 'true' then 'test.txt']: 'hello world!'
 }
 ```
+
 # S6 integration
 
 As rconfd has been made to configure (and actively reconfigure) one or several services configurations files,
@@ -247,13 +237,13 @@ natural fit for managing multi services containers. It's simple as in clever, an
 under 900K in alpine). [s6-overlay](https://github.com/just-containers/s6-overlay) can kickstart you for
 using it inside your containers.
 
-One key component of s6 is [execline](https://skarnet.org/software/execline/) which aim is to replace your interpreter
-(ie. bash) with a no-interpreter. An execline script is in fact one command line where each executable consumes
-its own arguments, complete its task and then replaces itself with the remaining arguments (chainloading). The
-script is parsed only once at startup and no interpreter lies in memory during the process, and yet you can do
-everything a bash can do. It looks like an *impossible mission* script that is consuming itself to the end. Only
-the remaining script stays in memory at each step. No interpreter means fewer security risks (no injection possible
-with execline), fewer resources allocated, and instant startup.
+One key component of s6 is [execline](https://skarnet.org/software/execline/) which aim is to replace your
+interpreter (ie. bash) with a no-interpreter. An execline script is in fact a chain of commands + arguments. Each
+command consumes its own arguments, complete its task and then replaces itself with the remaining arguments
+(chainloading). The script is parsed only once at startup and no interpreter lies in memory during the process,
+and yet you can do everything a bash can do. It looks like an *impossible mission* script that is consuming itself
+to the end. Only the remaining script stays in memory at each step. No interpreter means fewer security risks
+(no injection possible with execline), fewer resources allocated, and instant startup.
 
 This is the `/etc/services.d/rconfd/run` script I use in my s6-overlay + rconfd based image. In the service
 directory you can put a `/etc/services.d/rconfd/notification-fd` with the content `3` which indicates that you want
@@ -328,7 +318,7 @@ EOF
 ```
 
 Create a role. Here You can only login with that role if the project is inside the `alpine` group and the
-build is for a protected tag (release).
+build is upon a protected tag (generally used for release).
 
 ```sh
 vault write auth/jwt/role/myrole - <<EOF
@@ -345,13 +335,13 @@ vault write auth/jwt/role/myrole - <<EOF
 }
 ```
 
-## Configuring Gitlab CI/CD
+## Configuring CI/CD
 
 You should make a build image (`mybuilder`) containing the rconfd configuration files (`/etc/rconfd`) and rconfd
 executable. Then you just have to call rconfd in your pipelines script reading the JWT token from the environment
-variable `CI_JOB_JWT` (note that we use a variable name to not expose the token on the command line arguments),
-and redefine the login path to `/auth/jwt/login` before calling your build script. You must define a `VAULT_URL`
-variable in project or group settings.
+variable `CI_JOB_JWT` (note that we use a variable name here and and not a substitution to not expose the token on
+the command line arguments), and redefine the login path to `/auth/jwt/login` before calling your build script. You
+must define a `VAULT_URL` variable, and a good place for that is in project or group settings.
 
 Here is an example `.gitlab-ci.yml`
 

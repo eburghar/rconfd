@@ -1,5 +1,6 @@
-use anyhow::{anyhow, Result, Context};
 use std::env;
+
+use crate::result::{Error, Result};
 
 #[derive(PartialEq, Debug)]
 pub enum Token<'a> {
@@ -8,6 +9,7 @@ pub enum Token<'a> {
 	BraceError,
 }
 
+/// Iterator over string slices and variable expressions (${NAME}) on a given string
 pub struct SubstIterator<'a> {
 	remainder: &'a str,
 }
@@ -70,11 +72,10 @@ pub fn subst_envar(s: &str) -> Result<String> {
 				res += chunk;
 			}
 			Token::Var(name) => {
-				let val = env::var(name)
-					.with_context(|| format!("unable to substitute ${{{}}} in {}", name, s))?;
+				let val = env::var(name)?;
 				res += &val;
 			}
-			Token::BraceError => Err(anyhow!("no matching } found"))?,
+			Token::BraceError => Err(Error::RightBrace)?,
 		}
 	}
 	Ok(res)

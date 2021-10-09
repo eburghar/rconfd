@@ -1,4 +1,4 @@
-use crate::{message::Message, secret::Secrets, subst::subst_envar};
+use crate::{message::Message, secrets::Secrets, subst::subst_envar};
 
 use anyhow::{Context, Result};
 use async_std::channel::Sender;
