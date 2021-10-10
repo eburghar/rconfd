@@ -1,6 +1,6 @@
 [package]
 name = "rconfd"
-version = "0.11.0"
+version = "0.11.1"
 description = """Generate config files from jsonnet templates and keep them in sync with secrets fetched from a
 vault server with kubernetes authentication."""
 authors = ["Éric BURGHARD <eric@itsufficient.me>"]
@@ -26,5 +26,5 @@ vault-jwt = { version = "0.9.0", features = [] }
 # vault-jwt = { version = "0.9.0", features = ["nom"] }
 
 [patch.crates-io]
-vault-jwt = { git = "https://github.com/eburghar/vault-jwt.git", branch = "master" }
+vault-jwt = { git = "https://github.com/eburghar/vault-jwt.git", tag = "0.9.0" }
 # vault-jwt = { path = "../vault-jwt" }

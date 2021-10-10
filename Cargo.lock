@@ -1239,6 +1239,7 @@ dependencies = [
 [[package]]
 name = "vault-jwt"
 version = "0.9.0"
+source = "git+https://github.com/eburghar/vault-jwt.git?tag=0.9.0#58774eff7997817607d9c3713d61e88149c86f0e"
 dependencies = [
  "isahc",
  "log",

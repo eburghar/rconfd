@@ -54,7 +54,10 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 	// otherwise read from a file
 	} else {
 		let mut jwt = String::new();
-		File::open(&args.token_path)?.read_to_string(&mut jwt)?;
+		File::open(&args.token_path)
+			.with_context(|| format!("opening {}", args.token_path))?
+			.read_to_string(&mut jwt)
+			.with_context(|| format!("reading {}", args.token_path))?;
 		jwt
 	};
 	// trim jwt on both ends
@@ -85,7 +88,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 		// parse config files
 		log::info!("Loading {:?}", entry);
 		let path = entry.as_path();
-		let conf = parse_config(path).with_context(|| format!("config error: {:?}", path))?;
+		let conf = parse_config(path).with_context(|| format!("Parsing {:?}", path))?;
 		for (tmpl, conf) in conf {
 			log::info!("  Parsing {:?}", &tmpl);
 			// move conf to dedicated hashmap
@@ -206,9 +209,9 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 							}
 
 							// replace secret value an regenerate template if necessary
-							if secrets.replace(secret_path.full_path, secret) && gen_tmpl {
+							if secrets.replace(&path, secret) && gen_tmpl {
 								confs
-									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.generate_templates(&secrets, &path, &sender)
 									.await?;
 							}
 						}
@@ -232,11 +235,11 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									secret_path.to_string(),
 								))?,
 							};
-							if secrets.replace(secret_path.full_path, Secret::new(value, None))
+							if secrets.replace(&path, Secret::new(value, None))
 								&& gen_tmpl
 							{
 								confs
-									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.generate_templates(&secrets, &path, &sender)
 									.await?;
 							}
 						}
@@ -269,11 +272,11 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									secret_path.to_string(),
 								))?,
 							};
-							if secrets.replace(secret_path.full_path, Secret::new(value, None))
+							if secrets.replace(&path, Secret::new(value, None))
 								&& gen_tmpl
 							{
 								confs
-									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.generate_templates(&secrets, &path, &sender)
 									.await?;
 							}
 						}
@@ -341,11 +344,11 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								},
 								_ => None,
 							};
-							if secrets.replace(secret_path.full_path, Secret::new(value, dur))
+							if secrets.replace(&path, Secret::new(value, dur))
 								&& gen_tmpl
 							{
 								confs
-									.generate_templates(&secrets, secret_path.full_path, &sender)
+									.generate_templates(&secrets, &path, &sender)
 									.await?;
 							}
 						}
@@ -385,6 +388,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 					// inject secret_key: secret_value in "secrets" extVar
 					let mut secrets_val = Map::with_capacity(secrets.len());
 					for (path, secret) in secrets.iter() {
+    					log::debug!("  path: {}", path);
 						// all secrets should have been fetched at that point so unwrap should not panic, otherwise it's a relevant panic
 						let secret = secret.as_ref().unwrap();
 						// add only the secrets declared in the template config

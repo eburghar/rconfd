@@ -72,7 +72,7 @@ pub fn subst_envar(s: &str) -> Result<String> {
 				res += chunk;
 			}
 			Token::Var(name) => {
-				let val = env::var(name)?;
+				let val = env::var(name).map_err(|e| Error::UnknownVar(name.to_owned(), e))?;
 				res += &val;
 			}
 			Token::BraceError => Err(Error::RightBrace)?,
