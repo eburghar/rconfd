@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "rconfd"
-version = "0.11.0"
+version = "0.11.1"
 dependencies = [
  "anyhow",
  "argh",

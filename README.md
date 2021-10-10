@@ -74,7 +74,7 @@ on supervisor or container runtime.
 # Usage
 
 ```
-rconfd 0.11.0
+rconfd 0.11.1
 
 Usage: rconfd [-d <dir>] [-u <url>] [-l <login-path>] [-j <jpath>] [-c <cacert>] [-T <token>] [-t <token-path>] [-v] [-r <ready-fd>] [-D]
 
