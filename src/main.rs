@@ -55,9 +55,9 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 	} else {
 		let mut jwt = String::new();
 		File::open(&args.token_path)
-			.with_context(|| format!("opening {}", args.token_path))?
+			.with_context(|| format!("Opening {}", args.token_path))?
 			.read_to_string(&mut jwt)
-			.with_context(|| format!("reading {}", args.token_path))?;
+			.with_context(|| format!("Reading {}", args.token_path))?;
 		jwt
 	};
 	// trim jwt on both ends
@@ -106,7 +106,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 					if secrets.get(path).is_none() {
 						// parse the secret
 						let secret = SecretPath::<Backend>::try_from(path.as_str())
-							.with_context(|| format!("failed to parse \"{}\"", path))?;
+							.with_context(|| format!("Parsing \"{}\"", path))?;
 						if secret.backend == Backend::Vault {
 							// ask the broker to login first
 							sender
@@ -137,7 +137,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 					let auth = client
 						.login_async(&role)
 						.await
-						.with_context(|| format!("failed to login vault server {}", &args.url))?;
+						.with_context(|| format!("Login to vault server {}", &args.url))?;
 					// schedule a relogin login task at 2/3 of the lease_duration time
 					if let Some(renew_delay) = auth.renew_delay() {
 						log::debug!(
@@ -157,7 +157,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 			Message::GetSecret(path, gen_tmpl) => {
 				// parse the secret again ? (yes it's cheap and contains only reference from path)
 				let secret_path = SecretPath::<Backend>::try_from(path.as_str())
-					.with_context(|| format!("failed to parse \"{}\"", path))?;
+					.with_context(|| format!("Parsing \"{}\"", path))?;
 				// get the secret if not already fetched or if it's not valid or it it needs to be renewed
 				if secrets
 					.get(secret_path.path)
@@ -191,7 +191,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								.await
 								.with_context(|| {
 									format!(
-										"failed to get the secret \"{}\"",
+										"Getting the secret \"{}\"",
 										secret_path.full_path
 									)
 								})?;
@@ -226,7 +226,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								)
 								.with_context(|| {
 									format!(
-										"failed to parse \"{}\" variable content",
+										"Parsing \"{}\" variable content",
 										secret_path.full_path
 									)
 								})?,
@@ -247,14 +247,14 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						Backend::File => {
 							let mut file =
 								File::open(secret_path.full_path).with_context(|| {
-									format!("failed to open \"{}\"", secret_path.full_path)
+									format!("Opening \"{}\"", secret_path.full_path)
 								})?;
 
 							let value = match secret_path.args[0] {
 								"str" => {
 									let mut buffer = String::new();
 									file.read_to_string(&mut buffer).with_context(|| {
-										format!("failed to read \"{}\"", secret_path.full_path)
+										format!("Reading \"{}\"", secret_path.full_path)
 									})?;
 									Value::String(buffer)
 								}
@@ -262,7 +262,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									let reader = BufReader::new(file);
 									serde_json::from_reader(reader).with_context(|| {
 										format!(
-											"failed to parse file \"{}\"",
+											"Parsing \"{}\"",
 											secret_path.full_path
 										)
 									})?
@@ -305,7 +305,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								cmd = cmd.args(&args[1..]);
 							}
 							let output = cmd.output().with_context(|| {
-								format!("error executing \"{}\"", secret_path.full_path)
+								format!("Executing \"{}\"", secret_path.full_path)
 							})?;
 							if !output.status.success() {
 								Err(Error::CmdError(
@@ -323,7 +323,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								)
 								.with_context(|| {
 									format!(
-										"failed to parse \"{}\" variable content",
+										"Parsing \"{}\" variable content",
 										secret_path.full_path
 									)
 								})?,
@@ -409,9 +409,9 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 
 					// add the template file
 					let val = state
-						.evaluate_file_raw(&PathBuf::from(tmpl_path))
+						.evaluate_file_raw(&PathBuf::from(&tmpl_path))
 						.map_err(|e| anyhow::Error::msg(state.stringify_err(&e)))
-						.with_context(|| "template error")?;
+						.with_context(|| format!("Evaluating {:?}", tmpl_path))?;
 
 					// parse file mode
 					let mode = u32::from_str_radix(&conf.mode, 8);
@@ -432,7 +432,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 					for (file, data) in state
 						.manifest_multi(val)
 						.map_err(|e| anyhow::Error::msg(state.stringify_err(&e)))
-						.with_context(|| "manifestation error")?
+						.with_context(|| "Manifestation")?
 						.iter()
 					{
 						let mut path = PathBuf::from(&conf.dir);
@@ -450,7 +450,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						// write file
 						let mut file = File::create(&path)?;
 						writeln!(file, "{}", data)
-							.with_context(|| format!("failed to write {:?}", &path))?;
+							.with_context(|| format!("Writing {:?}", &path))?;
 						log::info!("  {} generated", path.to_str().expect("path"));
 						// set file permissions
 						if let Ok(mode) = mode {
@@ -463,7 +463,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						}
 						// save checksum and compare with previous one
 						changes |= checksums.hash_file(&path).await.with_context(|| {
-							format!("failed to calculate checksum of \"{:?}\"", &path)
+							format!("Calculating checksum of \"{:?}\"", &path)
 						})?;
 					}
 

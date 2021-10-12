@@ -141,7 +141,7 @@ impl Hooks {
 					log::info!("  hook {} trigerred. Executing \"{}\"", hook_type, cmd_str);
 					let res = cmd.output();
 					if res.is_err() {
-						log::error!("Failed to execute \"{}\"", cmd_str);
+						log::error!("Executing \"{}\"", cmd_str);
 					}
 				} else {
 					log::error!(
@@ -203,7 +203,7 @@ pub fn parse_config(file: &Path) -> Result<Conf> {
 /// TODO: use generics to return iterator
 pub fn config_files(dir: &String) -> Result<Vec<PathBuf>> {
 	fs::read_dir(dir)
-		.with_context(|| format!("can't browse confid dir {}", dir))?
+		.with_context(|| format!("Browsing config dir {}", dir))?
 		.map(|r| r.map_err(|e| anyhow::Error::from(e)).map(|d| d.path()))
 		.filter(|r| r.is_ok() && is_conffile(r.as_deref().unwrap()))
 		.collect()
