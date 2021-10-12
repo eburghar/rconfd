@@ -280,10 +280,8 @@ if { s6-test ${?} = 0 }
 
 - [`with-contenv`](https://github.com/just-containers/s6-overlay/blob/master/builder/overlay-rootfs/usr/bin/with-contenv)
   allows to import container enviroment (which can define `VAULT_URL`) in the script context.
-- [`importas`](https://skarnet.org/software/execline/importas.html) substitutes variables expressions present in
-  its args (remaining script) using default value (`-D`) if undefined.
-- we then launch rconfd in daemon mode, reading all config files in `/etc/rconfd` directory, using the readiness
-  fd 3, and waiting for its completion in the foreground
+- we then launch rconfd in daemon mode, reading all config files in `/etc/rconfd` directory (by default), using
+  the readiness fd 3, and waiting for its completion in the foreground
 - if the daemon exits normally (because no leased secrets are used and it's useless to stay running in this
   case), we replace rconfd with the smallest daemon implementation possible
   ([`s6-pause`](https://skarnet.org/software/s6-portable-utils/s6-pause.html)), which just wait forever without
@@ -309,6 +307,7 @@ to signal (here a simple reload with `SIGHUP`) a given service that configuratio
 
 ```json
 {
+		...
 		"hooks": {
 			"modified": "/bin/s6-svc -h /var/run/s6/services/myservice"
 		}

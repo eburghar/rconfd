@@ -11,7 +11,11 @@ mod subst;
 mod task;
 
 use anyhow::Context;
-use async_std::{channel::unbounded, stream::StreamExt};
+use async_std::{
+	channel::{unbounded, Receiver, Sender},
+	prelude::FutureExt,
+	stream::StreamExt,
+};
 use jrsonnet_evaluator::{
 	trace::{CompactFormat, PathResolver},
 	EvaluationState, FileImportResolver, ManifestFormat, Val,
@@ -46,7 +50,64 @@ use crate::{
 	task::delay_task,
 };
 
-async fn main_loop(args: &Args) -> anyhow::Result<()> {
+async fn load_configs(sender: Sender<Message>, args: &Args) -> anyhow::Result<()> {
+	// for each .json files in the conf directory
+	let mut entries = config_files(&args.dir)?;
+	// sort entries by lexicographic order so we can influence order of config processing
+	entries.sort_unstable();
+	for entry in entries.into_iter() {
+		// parse config files
+		log::info!("Loading {:?}", entry);
+		let path = entry.as_path();
+		let conf = parse_config(path).with_context(|| format!("Parsing {:?}", path))?;
+		for (tmpl, conf) in conf {
+			log::info!("  Parsing {:?}", &tmpl);
+			// move conf to dedicated hashmap
+			sender
+				.send(Message::InsertTemplate(tmpl.clone(), conf))
+				.await?;
+		}
+	}
+	// trigger manifestation now we asked the broker to fetch all secrets
+	sender.send(Message::GenerateAllTemplates).await?;
+	Ok(())
+}
+
+async fn login(
+	sender: Sender<Message>,
+	client: &mut VaultClient,
+	role: &str,
+) -> anyhow::Result<()> {
+	// log in if not already logged in with that role
+	if !client.is_logged(role) {
+		log::debug!("  Login({})", role);
+		let url = client.url.clone();
+		let auth = client
+			.login_async(&role)
+			.await
+			.with_context(|| format!("Login to vault server {}", url))?;
+		// schedule a relogin login task at 2/3 of the lease_duration time
+		if let Some(renew_delay) = auth.renew_delay() {
+			log::debug!(
+				"  logged in {} with role {}. Log in again within {:?}",
+				&client.url,
+				role,
+				renew_delay
+			);
+			delay_task(
+				send_message(sender.clone(), Message::Login(role.to_string())),
+				renew_delay,
+			);
+		}
+	}
+	Ok(())
+}
+
+async fn main_loop(
+	sender: Sender<Message>,
+	mut receiver: Receiver<Message>,
+	args: &Args,
+) -> anyhow::Result<()> {
 	// variables defining the state inside the main loop
 	// if token given as argument, get the value from an envar with given name, or just use the string if it fails
 	let jwt = if let Some(jwt) = &args.token {
@@ -64,10 +125,10 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 	let jwt = jwt.trim();
 	// initialize a vault client
 	let mut client = VaultClient::new(&args.url, &args.login_path, jwt, Some(&args.cacert))?;
-	// map secret path to secret value
-	let mut secrets = Secrets::new();
 	// map template name to template conf
 	let mut confs = TemplateConfs::new();
+	// map secret path to secret value
+	let mut secrets = Secrets::new();
 	// map path to checksums
 	let mut checksums = Checksums::new();
 	// before first generate
@@ -77,87 +138,41 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 	// current user
 	let current_user = User::current();
 
-	// initialise mpsc channel
-	let (sender, mut receiver) = unbounded::<Message>();
-
-	// for each .json files in the conf directory
-	let mut entries = config_files(&args.dir)?;
-	// sort entries by lexicographic order so we can influence order of config processing
-	entries.sort_unstable();
-	for entry in entries.into_iter() {
-		// parse config files
-		log::info!("Loading {:?}", entry);
-		let path = entry.as_path();
-		let conf = parse_config(path).with_context(|| format!("Parsing {:?}", path))?;
-		for (tmpl, conf) in conf {
-			log::info!("  Parsing {:?}", &tmpl);
-			// move conf to dedicated hashmap
-			confs.insert(tmpl.clone(), conf);
-
-			let secrets_map = &confs.get(&tmpl).unwrap().secrets;
-			if secrets_map.is_empty() {
-				// if no secrets generate template straight away
-				log::debug!("empty GenerateTemplate({})", tmpl);
-				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
-			} else {
-				// otherwise fetch all the secrets defined in the template config
-				for (path, _) in secrets_map.iter() {
-					// if we didn't already ask to get the secret
-					if secrets.get(path).is_none() {
-						// parse the secret
-						let secret = SecretPath::<Backend>::try_from(path.as_str())
-							.with_context(|| format!("failed to parse \"{}\"", path))?;
-						if secret.backend == Backend::Vault {
-							// ask the broker to login first
-							sender
-								.send(Message::Login(secret.args[0].to_owned()))
-								.await?;
-						}
-						// intialize secret to None
-						secrets.insert(path.clone(), None);
-						// ask the broker to get the secret initial value without triggering manifestation
-						sender
-							.send(Message::GetSecret(path.to_owned(), false))
-							.await?
-					}
-				}
-			}
-		}
-	}
-	// trigger manifestation now we asked the broker to fetch all secrets
-	confs.generate_all_templates(&secrets, &sender).await?;
-
+	log::info!("start main loop");
 	// actor loop
 	while let Some(msg) = receiver.next().await {
 		match msg {
-			Message::Login(role) => {
-				// log in if not already logged in with that role
-				if !client.is_logged(&role) {
-					log::debug!("  Login({})", &role);
-					let auth = client
-						.login_async(&role)
-						.await
-						.with_context(|| format!("failed to login vault server {}", &args.url))?;
-					// schedule a relogin login task at 2/3 of the lease_duration time
-					if let Some(renew_delay) = auth.renew_delay() {
-						log::debug!(
-							"  logged in {} with role {}. Log in again within {:?}",
-							&client.url,
-							&role,
-							renew_delay
-						);
-						delay_task(
-							send_message(sender.clone(), Message::Login(role)),
-							renew_delay,
-						);
+			Message::InsertTemplate(tmpl, conf) => {
+				confs.insert(tmpl.clone(), conf);
+				let secrets_map = &confs.get(&tmpl).unwrap().secrets;
+				if secrets_map.is_empty() {
+					// if no secrets generate template straight away
+					log::debug!("empty GenerateTemplate({})", tmpl);
+					sender.send(Message::GenerateTemplate(tmpl)).await?;
+				} else {
+					// otherwise fetch all the secrets defined in the template config
+					for (path, _) in secrets_map.iter() {
+						// if we didn't already ask to get the secret
+						if secrets.get(path).is_none() {
+							// parse the secret
+							// ask the broker to get the secret initial value without triggering manifestation
+							sender
+								.send(Message::GetSecret(path.to_owned(), false))
+								.await?
+						}
 					}
 				}
 			}
-
+			Message::GenerateAllTemplates => {
+				confs.generate_all_templates(&secrets, &sender).await?;
+			}
+			Message::Login(role) => {
+				login(sender.clone(), &mut client, &role).await?;
+			}
 			Message::GetSecret(path, gen_tmpl) => {
 				// parse the secret again ? (yes it's cheap and contains only reference from path)
 				let secret_path = SecretPath::<Backend>::try_from(path.as_str())
-					.with_context(|| format!("failed to parse \"{}\"", path))?;
+					.with_context(|| format!("Parsing \"{}\"", path))?;
 				// get the secret if not already fetched or if it's not valid or it it needs to be renewed
 				if secrets
 					.get(secret_path.path)
@@ -178,8 +193,10 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						.get(1)
 						.unwrap_or(&"get")
 						.to_ascii_uppercase();
+
 					match secret_path.backend {
 						Backend::Vault => {
+							login(sender.clone(), &mut client, role).await?;
 							// fetch the secret
 							let secret = client
 								.get_secret_async(
@@ -191,7 +208,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								.await
 								.with_context(|| {
 									format!(
-										"failed to get the secret \"{}\"",
+										"Getting the secret \"{}\"",
 										secret_path.full_path
 									)
 								})?;
@@ -210,9 +227,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 
 							// replace secret value an regenerate template if necessary
 							if secrets.replace(&path, secret) && gen_tmpl {
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
@@ -226,7 +241,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								)
 								.with_context(|| {
 									format!(
-										"failed to parse \"{}\" variable content",
+										"Parsing \"{}\" variable content",
 										secret_path.full_path
 									)
 								})?,
@@ -235,26 +250,22 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									secret_path.to_string(),
 								))?,
 							};
-							if secrets.replace(&path, Secret::new(value, None))
-								&& gen_tmpl
-							{
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+							if secrets.replace(&path, Secret::new(value, None)) && gen_tmpl {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
 						Backend::File => {
 							let mut file =
 								File::open(secret_path.full_path).with_context(|| {
-									format!("failed to open \"{}\"", secret_path.full_path)
+									format!("Opening \"{}\"", secret_path.full_path)
 								})?;
 
 							let value = match secret_path.args[0] {
 								"str" => {
 									let mut buffer = String::new();
 									file.read_to_string(&mut buffer).with_context(|| {
-										format!("failed to read \"{}\"", secret_path.full_path)
+										format!("Reading \"{}\"", secret_path.full_path)
 									})?;
 									Value::String(buffer)
 								}
@@ -262,7 +273,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									let reader = BufReader::new(file);
 									serde_json::from_reader(reader).with_context(|| {
 										format!(
-											"failed to parse file \"{}\"",
+											"Parsing \"{}\"",
 											secret_path.full_path
 										)
 									})?
@@ -272,12 +283,8 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 									secret_path.to_string(),
 								))?,
 							};
-							if secrets.replace(&path, Secret::new(value, None))
-								&& gen_tmpl
-							{
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+							if secrets.replace(&path, Secret::new(value, None)) && gen_tmpl {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
@@ -323,7 +330,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								)
 								.with_context(|| {
 									format!(
-										"failed to parse \"{}\" variable content",
+										"Parsing \"{}\" variable content",
 										secret_path.full_path
 									)
 								})?,
@@ -344,12 +351,8 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								},
 								_ => None,
 							};
-							if secrets.replace(&path, Secret::new(value, dur))
-								&& gen_tmpl
-							{
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+							if secrets.replace(&path, Secret::new(value, dur)) && gen_tmpl {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 					}
@@ -450,7 +453,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						// write file
 						let mut file = File::create(&path)?;
 						writeln!(file, "{}", data)
-							.with_context(|| format!("failed to write {:?}", &path))?;
+							.with_context(|| format!("Writing {:?}", &path))?;
 						log::info!("  {} generated", path.to_str().expect("path"));
 						// set file permissions
 						if let Ok(mode) = mode {
@@ -463,7 +466,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						}
 						// save checksum and compare with previous one
 						changes |= checksums.hash_file(&path).await.with_context(|| {
-							format!("failed to calculate checksum of \"{:?}\"", &path)
+							format!("Calculating checksum of \"{:?}\"", &path)
 						})?;
 					}
 
@@ -503,8 +506,13 @@ fn main() -> anyhow::Result<()> {
 	// parse command line arguments
 	let args: Args = args::from_env();
 
+	// initialise mpsc channel
+	let (sender, receiver) = unbounded::<Message>();
+
 	// initialize env_logger in info mode for rconfd by default
 	env_logger::init_from_env(env_logger::Env::new().default_filter_or("rconfd=info"));
-	async_std::task::block_on(main_loop(&args))?;
+	async_std::task::block_on(
+		main_loop(sender.clone(), receiver, &args).try_join(load_configs(sender, &args)),
+	)?;
 	Ok(())
 }

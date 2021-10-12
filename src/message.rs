@@ -1,5 +1,7 @@
-use async_std::channel::Sender;
 use anyhow::Result;
+use async_std::channel::Sender;
+
+use crate::conf::TemplateConf;
 
 /// Message sent by tasks to main_loop
 #[derive(Debug)]
@@ -10,6 +12,10 @@ pub enum Message {
 	GetSecret(String, bool),
 	// generate template (config name)
 	GenerateTemplate(String),
+	// generate all templates
+	GenerateAllTemplates,
+	// insert template
+	InsertTemplate(String, TemplateConf),
 }
 
 /// convert the error in the return signature of sender.send to anyhow::Error
