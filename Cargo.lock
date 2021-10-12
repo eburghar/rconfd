@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "rconfd"
-version = "0.11.1"
+version = "0.11.2"
 dependencies = [
  "anyhow",
  "argh",
@@ -1238,8 +1238,8 @@ dependencies = [
 
 [[package]]
 name = "vault-jwt"
-version = "0.9.0"
-source = "git+https://github.com/eburghar/vault-jwt.git?tag=0.9.0#58774eff7997817607d9c3713d61e88149c86f0e"
+version = "0.9.1"
+source = "git+https://github.com/eburghar/vault-jwt.git?tag=0.9.1#7cfc1b1c0abee476c7a4109ae0a49e9c949f6a30"
 dependencies = [
  "isahc",
  "log",

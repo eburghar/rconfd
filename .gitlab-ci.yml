@@ -1,0 +1,8 @@
+include:
+  - project: gitlab/templates
+    file:
+      - build_rust.yml
+      - commit_downstream_apk.yml
+
+variables:
+  EXTRA_APKS: openssl-dev

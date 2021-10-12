@@ -1,4 +1,9 @@
-# rconfd
+Generate config files from jsonnet templates and keep them in sync with secrets fetched from a
+vault server with kubernetes authentication.
+
+[TOC]
+
+# Presentation
 
 `rconfd` is a lightweight utility for containers and CI/CD, written in async rust, to generate config files
 from [jsonnet templates](https://jsonnet.org/), and eventually keep them in sync with secrets fetched from a
@@ -47,17 +52,23 @@ at startup in a flexible way.
 
 # Process supervisor inside containers ?
 
-If you have short-lived secrets tied to a service running in a container, you can run rconfd (not in daemon mode)
-before your service, expect your service to fail after a while (ex: database credentials expired) and entrust
-kubernetes to restart your pod quickly (with updated credentials).
+Running your service as PID 1 is a bad idea unless you know what you are doing. People normally use
+[dumb-init](https://github.com/Yelp/dumb-init) but for the same price you can have a full featured
+[s6](https://github.com/skarnet/s6) supervisor.
+
+Without a service supervisor inside your container, you would run rconfd before your service, expect your service
+to fail after a while (ex: database credentials expired) and entrust kubernetes to restart your pod quickly with
+updated credentials.
 
 Like the [S6 overlay authors](https://github.com/just-containers/s6-overlay#the-docker-way), I never believed
 in the rigid general approach of one executable per container, which forces you to decouple your software stack
 under kubernetes into pods, init containers, inject containers, side car containers, with liveliness and readiness
 tests and blind kill and restart on timeout if conditions are not not met (which is the approach taken by [vault
-injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)).
+injector](https://learn.hashicorp.com/tutorials/vault/kubernetes-sidecar?in=vault/kubernetes)). Did I mention that
+a vault executable which embed a client, an agent and a server (docker style) weight 170MB ? It's much a semi-trailer
+than a side-car to me.
 
-With several services and `rconfd` in the same container supervised by s6, everything stays coherent and tied
+With several services and `rconfd` (5MB) in the same container supervised by s6, everything stays coherent and tied
 together. The orchestration is simple and smarter, it starts faster, and scale without putting unnecessary pressure
 on supervisor or container runtime.
 
