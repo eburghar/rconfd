@@ -11,7 +11,7 @@ pub enum Backend {
 	/// Filesystem
 	File,
 	/// Exe
-	Exe
+	Exe,
 }
 
 /// lookup list for backend

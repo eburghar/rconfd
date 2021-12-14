@@ -138,7 +138,7 @@ impl Hooks {
 					if args.len() > 1 {
 						cmd.args(&args[1..]);
 					}
-					log::info!("  hook {} trigerred. Executing \"{}\"", hook_type, cmd_str);
+					log::info!("hook {} trigerred. Executing \"{}\"", hook_type, cmd_str);
 					let res = cmd.output();
 					if res.is_err() {
 						log::error!("Executing \"{}\"", cmd_str);

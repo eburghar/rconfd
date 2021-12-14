@@ -1,5 +1,5 @@
-use async_std::channel::Sender;
 use anyhow::Result;
+use async_std::channel::Sender;
 
 /// Message sent by tasks to main_loop
 #[derive(Debug)]

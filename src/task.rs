@@ -1,6 +1,6 @@
+use anyhow::Result;
 use async_std::{future, task};
 use std::time::Duration;
-use anyhow::Result;
 
 /// delay a future by a duration
 pub fn delay_task<F>(fut: F, dur: Duration) -> task::JoinHandle<Result<()>>

@@ -8,14 +8,14 @@ pub enum Error {
 	MissingRole(String),
 	#[error(transparent)]
 	Parse(#[from] serde_json::error::Error),
-    #[error("Expected argument {0} on {1}")]
-    ExpectedArg(String, String),
-    #[error("No matching }} found")]
-    RightBrace,
-    #[error("in \"{0}\", command \"{1}\" should be absolute and start with /")]
-    RelativePath(String, String),
-    #[error("{1}: {0}")]
-    UnknownVar(String, #[source] std::env::VarError)
+	#[error("Expected argument {0} on {1}")]
+	ExpectedArg(String, String),
+	#[error("No matching }} found")]
+	RightBrace,
+	#[error("in \"{0}\", command \"{1}\" should be absolute and start with /")]
+	RelativePath(String, String),
+	#[error("{1}: {0}")]
+	UnknownVar(String, #[source] std::env::VarError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

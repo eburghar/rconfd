@@ -1,4 +1,4 @@
-use std::{fs::File, os::unix::io::FromRawFd, io::Write};
+use std::{fs::File, io::Write, os::unix::io::FromRawFd};
 
 pub fn s6_ready(fd: Option<i32>) {
 	if let Some(fd) = fd {

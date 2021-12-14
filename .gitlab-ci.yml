@@ -1,5 +1,5 @@
 include:
-  - project: gitlab/templates
+  - project: templates/gitlab
     file:
       - build_rust.yml
       - commit_downstream_apk.yml
