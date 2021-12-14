@@ -14,5 +14,5 @@ pub enum Message {
 
 /// convert the error in the return signature of sender.send to anyhow::Error
 pub async fn send_message(sender: Sender<Message>, msg: Message) -> Result<()> {
-	sender.send(msg).await.map_err(|e| anyhow::Error::from(e))
+	sender.send(msg).await.map_err(anyhow::Error::from)
 }

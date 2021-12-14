@@ -159,20 +159,20 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 				let secret_path = SecretPath::<Backend>::try_from(path.as_str())
 					.with_context(|| format!("Parsing \"{}\"", path))?;
 				// get the secret if not already fetched or if it's not valid or it it needs to be renewed
-				if secrets
+				let get_secret = secrets
 					.get(secret_path.path)
 					.filter(|o| {
 						o.as_ref()
 							.filter(|s| s.is_valid() && !s.to_renew())
 							.is_some()
 					})
-					.is_none()
-				{
+					.is_none();
+				if get_secret {
 					log::debug!("  GetSecret({}, {})", &path, gen_tmpl);
 					let role = secret_path
 						.args
 						.get(0)
-						.ok_or_else(|| Error::MissingRole(format!("{}", path)))?;
+						.ok_or_else(|| Error::MissingRole(path.to_string()))?;
 					let method = secret_path
 						.args
 						.get(1)
@@ -190,10 +190,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								)
 								.await
 								.with_context(|| {
-									format!(
-										"Getting the secret \"{}\"",
-										secret_path.full_path
-									)
+									format!("Getting the secret \"{}\"", secret_path.full_path)
 								})?;
 
 							// schedule the newewal of the secret which can trigger template generation
@@ -210,19 +207,19 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 
 							// replace secret value an regenerate template if necessary
 							if secrets.replace(&path, secret) && gen_tmpl {
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
 						Backend::Env => {
 							let value = match secret_path.args[0] {
 								"str" => Value::String(
-									env::var(secret_path.full_path).unwrap_or("".to_owned()),
+									env::var(secret_path.full_path)
+										.unwrap_or_else(|_| "".to_owned()),
 								),
 								"js" => serde_json::from_str(
-									&env::var(secret_path.full_path).unwrap_or("\"\"".to_owned()),
+									&env::var(secret_path.full_path)
+										.unwrap_or_else(|_| "\"\"".to_owned()),
 								)
 								.with_context(|| {
 									format!(
@@ -230,17 +227,16 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 										secret_path.full_path
 									)
 								})?,
-								_ => Err(Error::ExpectedArg(
-									"\"str\" or \"js\"".to_owned(),
-									secret_path.to_string(),
-								))?,
+								_ => {
+									return Err(Error::ExpectedArg(
+										"\"str\" or \"js\"".to_owned(),
+										secret_path.to_string(),
+									)
+									.into())
+								}
 							};
-							if secrets.replace(&path, Secret::new(value, None))
-								&& gen_tmpl
-							{
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+							if secrets.replace(&path, Secret::new(value, None)) && gen_tmpl {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
@@ -261,23 +257,19 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								"js" => {
 									let reader = BufReader::new(file);
 									serde_json::from_reader(reader).with_context(|| {
-										format!(
-											"Parsing \"{}\"",
-											secret_path.full_path
-										)
+										format!("Parsing \"{}\"", secret_path.full_path)
 									})?
 								}
-								_ => Err(Error::ExpectedArg(
-									"\"str\" or \"js\"".to_owned(),
-									secret_path.to_string(),
-								))?,
+								_ => {
+									return Err(Error::ExpectedArg(
+										"\"str\" or \"js\"".to_owned(),
+										secret_path.to_string(),
+									)
+									.into())
+								}
 							};
-							if secrets.replace(&path, Secret::new(value, None))
-								&& gen_tmpl
-							{
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+							if secrets.replace(&path, Secret::new(value, None)) && gen_tmpl {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 
@@ -285,8 +277,12 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 							let args: Vec<&str> =
 								secret_path.full_path.split_whitespace().collect();
 							// enforce absolute exec path for security reason
-							if !args[0].starts_with("/") {
-								Err(Error::RelativePath(path.to_string(), args[0].to_owned()))?;
+							if !args[0].starts_with('/') {
+								return Err(Error::RelativePath(
+									path.to_string(),
+									args[0].to_owned(),
+								)
+								.into());
 							}
 							// use sudo to drop privilege if uid is 0 before executing
 							let mut cmd = &mut Command::new(if current_user.uid == 0 {
@@ -308,18 +304,20 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 								format!("Executing \"{}\"", secret_path.full_path)
 							})?;
 							if !output.status.success() {
-								Err(Error::CmdError(
+								return Err(Error::Cmd(
 									secret_path.full_path.to_owned(),
 									output.status.code().unwrap_or(1),
 									String::from_utf8_lossy(&output.stderr).to_string(),
-								))?;
+								)
+								.into());
 							}
 							let value = match secret_path.args[0] {
 								"str" => Value::String(
 									String::from_utf8_lossy(&output.stdout).trim().to_owned(),
 								),
 								"js" => serde_json::from_str(
-									&env::var(secret_path.full_path).unwrap_or("\"\"".to_owned()),
+									&env::var(secret_path.full_path)
+										.unwrap_or_else(|_| "\"\"".to_owned()),
 								)
 								.with_context(|| {
 									format!(
@@ -327,29 +325,31 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 										secret_path.full_path
 									)
 								})?,
-								_ => Err(Error::ExpectedArg(
-									"\"str\" or \"js\"".to_owned(),
-									secret_path.to_string(),
-								))?,
+								_ => {
+									return Err(Error::ExpectedArg(
+										"\"str\" or \"js\"".to_owned(),
+										secret_path.to_string(),
+									)
+									.into())
+								}
 							};
 							// secret declared as static (default) have no lease, whereas dynamic are invalid as soon as fetched (0s lease)
 							let dur = match secret_path.args.get(1) {
 								Some(s) => match *s {
 									"static" => None,
 									"dynamic" => Some(Duration::from_secs(0)),
-									_ => Err(Error::ExpectedArg(
-										"\"static\" or \"dynamic\"".to_owned(),
-										secret_path.to_string(),
-									))?,
+									_ => {
+										return Err(Error::ExpectedArg(
+											"\"static\" or \"dynamic\"".to_owned(),
+											secret_path.to_string(),
+										)
+										.into())
+									}
 								},
 								_ => None,
 							};
-							if secrets.replace(&path, Secret::new(value, dur))
-								&& gen_tmpl
-							{
-								confs
-									.generate_templates(&secrets, &path, &sender)
-									.await?;
+							if secrets.replace(&path, Secret::new(value, dur)) && gen_tmpl {
+								confs.generate_templates(&secrets, &path, &sender).await?;
 							}
 						}
 					}
@@ -372,7 +372,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						.set_manifest_format(ManifestFormat::ToString);
 					// add file import resolver
 					let library_paths = if let Some(ref jpath) = args.jpath {
-						jpath.split(",").map(|s| PathBuf::from(s.trim())).collect()
+						jpath.split(',').map(|s| PathBuf::from(s.trim())).collect()
 					} else {
 						vec![]
 					};
@@ -401,7 +401,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 					);
 
 					// prepend args.dir if the template path is relative
-					let tmpl_path = if tmpl.starts_with("/") {
+					let tmpl_path = if tmpl.starts_with('/') {
 						PathBuf::from(tmpl)
 					} else {
 						PathBuf::from(&args.dir).join(tmpl)
@@ -436,7 +436,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						.iter()
 					{
 						let mut path = PathBuf::from(&conf.dir);
-						path.push(&file as &str);
+						path.push(file as &str);
 						// dirname after joining conf.dir and file
 						let mut dir = path.clone();
 						dir.pop();
@@ -462,14 +462,15 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 							user.chown(&path);
 						}
 						// save checksum and compare with previous one
-						changes |= checksums.hash_file(&path).await.with_context(|| {
-							format!("Calculating checksum of \"{:?}\"", &path)
-						})?;
+						changes |= checksums
+							.hash_file(&path)
+							.await
+							.with_context(|| format!("Calculating checksum of \"{:?}\"", &path))?;
 					}
 
 					// if checksums changed and not on first run, then trigger modified hook
 					if changes && !first_run {
-						conf.hooks.trigger(HookType::MODIFIED);
+						conf.hooks.trigger(HookType::Modified);
 					}
 
 					// increment generated counter
@@ -483,7 +484,7 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 						// signal s6 readiness that all config files have been generated
 						s6_ready(args.ready_fd);
 						// trigger ready hook if defined
-						conf.hooks.trigger(HookType::READY);
+						conf.hooks.trigger(HookType::Ready);
 						// quit if not in daemon mode or no dynamic secrets used among templates
 						if !args.daemon || !secrets.any_leased() {
 							if args.daemon {

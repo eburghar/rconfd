@@ -36,7 +36,7 @@ impl Checksums {
 	{
 		let path = path.as_ref();
 		let digest = self.entry(path.to_owned()).or_insert(None);
-		let prev_digest = digest.clone();
+		let prev_digest = *digest;
 		let mut hasher = Sha1::default();
 		let content = read(path).await?;
 		hasher.update(&content);

@@ -86,7 +86,7 @@ impl TemplateConfs {
 			if conf
 				.secrets
 				.iter()
-				.filter_map(|(path, _)| Some(secrets.get(path).is_some()))
+				.map(|(path, _)| secrets.get(path).is_some())
 				.all(|o| o)
 			{
 				sender.send(Message::GenerateTemplate(tmpl.clone())).await?;
@@ -110,15 +110,15 @@ pub struct Hooks {
 }
 
 pub enum HookType {
-	MODIFIED,
-	READY,
+	Modified,
+	Ready,
 }
 
 impl fmt::Display for HookType {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			HookType::MODIFIED => write!(f, "modified"),
-			HookType::READY => write!(f, "ready"),
+			HookType::Modified => write!(f, "modified"),
+			HookType::Ready => write!(f, "ready"),
 		}
 	}
 }
@@ -126,14 +126,14 @@ impl fmt::Display for HookType {
 impl Hooks {
 	pub fn trigger(&self, hook_type: HookType) {
 		let hook = match hook_type {
-			HookType::MODIFIED => &self.modified,
-			HookType::READY => &self.ready,
+			HookType::Modified => &self.modified,
+			HookType::Ready => &self.ready,
 		};
 		if let Some(ref cmd_str) = hook {
 			let args: Vec<&str> = cmd_str.split_whitespace().collect();
-			if args.len() > 0 {
+			if !args.is_empty() {
 				// enforce absolute exec path for security reason
-				if args[0].starts_with("/") {
+				if args[0].starts_with('/') {
 					let mut cmd = Command::new(&args[0]);
 					if args.len() > 1 {
 						cmd.args(&args[1..]);
@@ -177,7 +177,7 @@ where
 {
 	let s = String::deserialize(deserializer)?;
 	// try to substiture all variable in path
-	Ok(subst_envar(&s).map_err(de::Error::custom)?)
+	subst_envar(&s).map_err(de::Error::custom)
 }
 
 /// Substitute environement variables in the keys (path) of secrets hashmaps before serializing
@@ -201,10 +201,10 @@ pub fn parse_config(file: &Path) -> Result<Conf> {
 
 /// Return the list of config files names inside dir
 /// TODO: use generics to return iterator
-pub fn config_files(dir: &String) -> Result<Vec<PathBuf>> {
+pub fn config_files(dir: &str) -> Result<Vec<PathBuf>> {
 	fs::read_dir(dir)
 		.with_context(|| format!("Browsing config dir {}", dir))?
-		.map(|r| r.map_err(|e| anyhow::Error::from(e)).map(|d| d.path()))
+		.map(|r| r.map_err(anyhow::Error::from).map(|d| d.path()))
 		.filter(|r| r.is_ok() && is_conffile(r.as_deref().unwrap()))
 		.collect()
 }

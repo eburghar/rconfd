@@ -26,7 +26,7 @@ impl<'a> SubstIterator<'a> {
 	}
 
 	pub fn yield_var(&mut self) -> Option<Token<'a>> {
-		return if let Some(end) = self.remainder.find("}") {
+		return if let Some(end) = self.remainder.find('}') {
 			let name = &self.remainder[2..end];
 			self.remainder = &self.remainder[end + 1..];
 			Some(Token::Var(name))
@@ -49,14 +49,12 @@ impl<'a> Iterator for SubstIterator<'a> {
 	fn next(&mut self) -> Option<Self::Item> {
 		return if self.remainder.is_empty() {
 			None
+		} else if self.remainder.starts_with("${") {
+			self.yield_var()
 		} else {
-			if self.remainder.starts_with("${") {
-				self.yield_var()
-			} else {
-				match self.remainder.find("${") {
-					None => self.yield_remainder(),
-					Some(end) => self.yield_str(end),
-				}
+			match self.remainder.find("${") {
+				None => self.yield_remainder(),
+				Some(end) => self.yield_str(end),
 			}
 		};
 	}
@@ -75,7 +73,7 @@ pub fn subst_envar(s: &str) -> Result<String> {
 				let val = env::var(name).map_err(|e| Error::UnknownVar(name.to_owned(), e))?;
 				res += &val;
 			}
-			Token::BraceError => Err(Error::RightBrace)?,
+			Token::BraceError => return Err(Error::RightBrace),
 		}
 	}
 	Ok(res)

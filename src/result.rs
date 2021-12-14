@@ -1,13 +1,13 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
 	#[error(transparent)]
-	VaultError(#[from] vault_jwt::error::Error),
+	Vault(#[from] vault_jwt::error::Error),
 	#[error("command \"{0}\" filed with code {1}:\n{2}")]
-	CmdError(String, i32, String),
+	Cmd(String, i32, String),
 	#[error("missing role in {0}")]
 	MissingRole(String),
 	#[error(transparent)]
-	ParseError(#[from] serde_json::error::Error),
+	Parse(#[from] serde_json::error::Error),
     #[error("Expected argument {0} on {1}")]
     ExpectedArg(String, String),
     #[error("No matching }} found")]
