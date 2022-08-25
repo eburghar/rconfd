@@ -388,11 +388,12 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 					// inject secret_key: secret_value in "secrets" extVar
 					let mut secrets_val = Map::with_capacity(secrets.len());
 					for (path, secret) in secrets.iter() {
-						// all secrets should have been fetched at that point so unwrap should not panic, otherwise it's a relevant panic
-						let secret = secret.as_ref().unwrap();
-						// add only the secrets declared in the template config
-						if let Some(name) = conf.secrets.get(path) {
-							secrets_val.insert(name.clone(), secret.value.clone());
+						// all secrets should have been fetched at that point
+						if let Some(secret) = secret {
+							// add only the secrets declared in the template config
+							if let Some(name) = conf.secrets.get(path) {
+								secrets_val.insert(name.clone(), secret.value.clone());
+							}
 						}
 					}
 					state.add_ext_var(
