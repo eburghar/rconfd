@@ -504,10 +504,10 @@ async fn main_loop(args: &Args) -> anyhow::Result<()> {
 fn main() -> anyhow::Result<()> {
 	// parse command line arguments
 	let args: Args = args::from_env();
-
 	// initialize env_logger in info mode for rconfd by default
 	env_logger::init_from_env(env_logger::Env::new().default_filter_or("rconfd=info"));
 	log::info!("{} v{}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
+
 
 	async_std::task::block_on(main_loop(&args))?;
 	Ok(())
